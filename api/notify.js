@@ -33,24 +33,32 @@ export default async function handler(req, res) {
     const [opponent] = await sbFetch(`players?id=eq.${ch.opponent_id}&select=*`);
     const site = `https://${req.headers.host}`;
 
-    let to, subject, html;
+    let to, subject, html, fromName, replyTo;
     const btn = `<p><a href="${site}" style="background:#D8F529;color:#0F2E25;padding:12px 20px;border-radius:4px;text-decoration:none;font-weight:bold">Open the ladder</a></p>`;
 
     if (type === "issued") {
       to = opponent?.email;
+      fromName = `${challenger.name} · FXBG Ladder`;
+      replyTo = challenger?.email;
       subject = `${challenger.name} challenged you on the FXBG ladder`;
       html = `<p><b>${challenger.name}</b> (#${challenger.rank}) has challenged you (#${opponent.rank}).</p>
-        <p>Accept by <b>${new Date(ch.accept_by).toLocaleDateString()}</b> or the challenge expires.</p>${btn}`;
+        <p>Accept by <b>${new Date(ch.accept_by).toLocaleDateString()}</b> or the challenge expires.</p>
+        <p>Reply to this email to reach ${challenger.name} directly.</p>${btn}`;
     } else if (type === "accepted") {
       to = challenger?.email;
+      fromName = `${opponent.name} · FXBG Ladder`;
+      replyTo = opponent?.email;
       subject = `${opponent.name} accepted your challenge`;
       html = `<p><b>${opponent.name}</b> accepted. Play and report the score by <b>${new Date(ch.play_by).toLocaleDateString()}</b>.</p>
-        <p>Contact: ${opponent.phone ? opponent.phone + " · " : ""}${opponent.email || ""}</p>${btn}`;
+        <p>Contact: ${opponent.phone ? opponent.phone + " · " : ""}${opponent.email || ""}</p>
+        <p>Reply to this email to set up the match.</p>${btn}`;
     } else if (type === "reported") {
       const loserId = ch.winner_id === ch.challenger_id ? ch.opponent_id : ch.challenger_id;
       const [loser] = await sbFetch(`players?id=eq.${loserId}&select=*`);
       const winner = ch.winner_id === ch.challenger_id ? challenger : opponent;
       to = loser?.email;
+      fromName = `${winner.name} · FXBG Ladder`;
+      replyTo = winner?.email;
       subject = `Score reported: ${winner.name} def. ${loser.name} ${ch.score}`;
       html = `<p>A score was reported for your match: <b>${winner.name}</b> def. <b>${loser.name}</b> ${ch.score}.</p>
         <p>Confirm it in the app, or it auto-confirms by <b>${new Date(ch.confirm_by).toLocaleString()}</b>.</p>${btn}`;
@@ -60,10 +68,14 @@ export default async function handler(req, res) {
 
     if (!to) return res.status(200).json({ skipped: "recipient has no email" });
 
+    // Keep the configured sender ADDRESS (required by Resend) but show the
+    // other player's NAME, TennisRungs-style: "Andy Wolfenbarger · FXBG Ladder"
+    const fromAddr = FROM.includes("<") ? FROM.match(/<([^>]+)>/)[1] : FROM;
+    const from = fromName ? `${fromName} <${fromAddr}>` : FROM;
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND}` },
-      body: JSON.stringify({ from: FROM, to, subject, html }),
+      body: JSON.stringify({ from, to, subject, html, reply_to: replyTo || undefined }),
     });
     const out = await r.json();
     return res.status(200).json({ sent: true, id: out.id });
