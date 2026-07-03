@@ -18,8 +18,10 @@ create table if not exists players (
   last_activity timestamptz not null default now(),
   is_admin boolean not null default false,
   active boolean not null default true,
+  dropped boolean not null default false,  -- temp drop: off the ladder, can re-join via admin
   created_at timestamptz not null default now()
 );
+alter table players add column if not exists dropped boolean not null default false;
 
 create table if not exists challenges (
   id uuid primary key default gen_random_uuid(),
@@ -129,6 +131,28 @@ begin
   update challenges set status = 'cancelled' where id = p_id;
 end $$;
 
+-- Player takes themselves off the ladder temporarily. Everyone below moves up.
+-- Blocked if they have an accepted match or unconfirmed score; pending
+-- challenges involving them are auto-declined/cancelled. Re-joining goes
+-- through an admin (reinstate lands them at the bottom).
+create or replace function temp_drop()
+returns void language plpgsql security definer as $$
+declare c players; old int; n int;
+begin
+  c := me();
+  if c.id is null or not c.active then raise exception 'You are not on the ladder'; end if;
+  select count(*) into n from challenges
+    where status in ('accepted','reported') and (challenger_id = c.id or opponent_id = c.id);
+  if n > 0 then
+    raise exception 'You have a match in progress. Finish it (or ask an admin to cancel it) before temp dropping';
+  end if;
+  update challenges set status = 'declined' where status = 'pending' and opponent_id = c.id;
+  update challenges set status = 'cancelled' where status = 'pending' and challenger_id = c.id;
+  old := c.rank;
+  update players set active = false, dropped = true, rank = 9999, rank_change = 0 where id = c.id;
+  update players set rank = rank - 1 where active and rank > old;
+end $$;
+
 create or replace function report_score(p_id uuid, p_winner uuid, p_score text)
 returns void language plpgsql security definer as $$
 declare c players; ch challenges; s settings;
@@ -234,7 +258,21 @@ begin
   values (trim(p_name), nullif(lower(trim(p_email)), ''), nullif(trim(p_phone), ''),
           coalesce((select max(rank) from players where active), 0) + 1)
   on conflict (email) do update
-    set name = excluded.name, phone = coalesce(excluded.phone, players.phone), active = true;
+    set name = excluded.name, phone = coalesce(excluded.phone, players.phone);
+  -- If they were removed or temp-dropped, bring them back at the bottom
+  update players set active = true, dropped = false, last_activity = now(),
+      rank = coalesce((select max(rank) from players where active), 0) + 1
+    where lower(email) = lower(trim(p_email)) and not active;
+end $$;
+
+-- Bring a temp-dropped (or removed) player back onto the bottom of the ladder
+create or replace function admin_reinstate_player(p_player uuid)
+returns void language plpgsql security definer as $$
+begin
+  perform assert_admin();
+  update players set active = true, dropped = false, last_activity = now(), rank_change = 0,
+      rank = coalesce((select max(rank) from players where active), 0) + 1
+    where id = p_player and not active;
 end $$;
 
 create or replace function admin_import_players(p_rows jsonb)
