@@ -565,9 +565,9 @@ function App() {
         {loginSent ? (
           <>
             <div style={{ color: C.line, fontSize: 14, lineHeight: 1.5, marginBottom: 14 }}>
-              We emailed a 6-digit code to <b>{loginEmail}</b>. Type it here — no need to leave this screen.
+              We emailed a sign-in code to <b>{loginEmail}</b>. Type it here — no need to leave this screen.
             </div>
-            <Field label="6-digit code" value={loginCode} onChange={setLoginCode} placeholder="123456" />
+            <Field label="Sign-in code" value={loginCode} onChange={setLoginCode} placeholder="code from your email" />
             <div style={{ display: "flex", gap: 8 }}>
               <Btn onClick={verifyCode} disabled={loginCode.trim().length < 6}>Sign in</Btn>
               <Btn kind="ghost" onClick={() => { setLoginSent(false); setLoginCode(""); }}>Different email</Btn>
