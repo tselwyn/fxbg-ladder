@@ -293,6 +293,7 @@ function App() {
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginSent, setLoginSent] = useState(false);
+  const [loginCode, setLoginCode] = useState("");
   const [showLogin, setShowLogin] = useState(false);
 
   const [target, setTarget] = useState(null);      // player being challenged
@@ -357,6 +358,26 @@ function App() {
     } catch (e) { say(e.message, true); }
   }
 
+  async function verifyCode() {
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: loginEmail.trim(),
+        token: loginCode.trim(),
+        type: "email",
+      });
+      if (error) throw error;
+      setShowLogin(false); setLoginSent(false); setLoginCode("");
+      say("Signed in — you'll stay signed in on this device");
+      loadAll();
+    } catch (e) { say(e.message, true); }
+  }
+
+  function confirmSignOut() {
+    if (confirm("Sign out? You'll need a new code to get back in.")) {
+      supabase.auth.signOut();
+    }
+  }
+
   async function doChallenge() {
     try {
       const cid = await rpc("issue_challenge", { p_opponent: target.id });
@@ -405,7 +426,7 @@ function App() {
           <div style={{ fontFamily: MONO, fontWeight: 700, fontSize: 22, color: C.ball, letterSpacing: 1 }}>THE LADDER</div>
         </div>
         {session ? (
-          <button onClick={() => supabase.auth.signOut()} style={{ background: "none", border: `1px solid ${C.faint}`, color: C.mute, borderRadius: 4, padding: "6px 10px", fontSize: 11, fontFamily: MONO, cursor: "pointer" }}>
+          <button onClick={confirmSignOut} style={{ background: "none", border: `1px solid ${C.faint}`, color: C.mute, borderRadius: 4, padding: "6px 10px", fontSize: 11, fontFamily: MONO, cursor: "pointer" }}>
             {meP ? meP.name.split(" ")[0].toUpperCase() : "SIGNED IN"} · OUT
           </button>
         ) : (
@@ -501,7 +522,7 @@ function App() {
 
         {/* ADMIN */}
         {!loading && tab === "admin" && meP?.is_admin && (
-          <AdminPanel players={players} settings={settings} say={say} reload={loadAll} />
+          <AdminPanel players={players} settings={settings} say={say} reload={loadAll} meP={meP} />
         )}
       </div>
 
@@ -518,16 +539,26 @@ function App() {
       {/* sign-in sheet */}
       <Sheet open={showLogin} onClose={() => { setShowLogin(false); setLoginSent(false); }} title="Sign in">
         {loginSent ? (
-          <div style={{ color: C.line, fontSize: 15, lineHeight: 1.5 }}>
-            Check your email — we sent a sign-in link to <b>{loginEmail}</b>. Open it on this device.
-          </div>
+          <>
+            <div style={{ color: C.line, fontSize: 14, lineHeight: 1.5, marginBottom: 14 }}>
+              We emailed a 6-digit code to <b>{loginEmail}</b>. Type it here — no need to leave this screen.
+            </div>
+            <Field label="6-digit code" value={loginCode} onChange={setLoginCode} placeholder="123456" />
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn onClick={verifyCode} disabled={loginCode.trim().length < 6}>Sign in</Btn>
+              <Btn kind="ghost" onClick={() => { setLoginSent(false); setLoginCode(""); }}>Different email</Btn>
+            </div>
+            <div style={{ color: C.mute, fontSize: 12, marginTop: 12 }}>
+              You'll stay signed in on this device until you sign out.
+            </div>
+          </>
         ) : (
           <>
             <div style={{ color: C.mute, fontSize: 13, marginBottom: 14 }}>
-              Use the email you're registered on the ladder with. No password — you'll get a magic link.
+              Use the email you're registered on the ladder with. No password — we'll email you a sign-in code.
             </div>
             <Field label="Email" type="email" value={loginEmail} onChange={setLoginEmail} placeholder="you@example.com" />
-            <Btn onClick={sendLogin} disabled={!loginEmail.includes("@")}>Send sign-in link</Btn>
+            <Btn onClick={sendLogin} disabled={!loginEmail.includes("@")}>Email me a code</Btn>
           </>
         )}
       </Sheet>
@@ -589,7 +620,7 @@ function App() {
 }
 
 // ---- ADMIN PANEL ----
-function AdminPanel({ players, settings, say, reload }) {
+function AdminPanel({ players, settings, say, reload, meP }) {
   const [s, setS] = useState(settings || {});
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -643,6 +674,12 @@ function AdminPanel({ players, settings, say, reload }) {
   }
 
   async function toggleAdmin(p) {
+    if (meP && p.id === meP.id) {
+      say("You can't remove your own admin — ask the other admin to do it", true);
+      return;
+    }
+    const verb = p.is_admin ? "Remove admin from" : "Make";
+    if (!confirm(`${verb} ${p.name}${p.is_admin ? "" : " an admin"}?`)) return;
     try { await rpc("admin_set_admin", { p_player: p.id, p_is: !p.is_admin }); say(`${p.name} ${p.is_admin ? "is no longer" : "is now"} an admin`); reload(); }
     catch (e) { say(e.message, true); }
   }
