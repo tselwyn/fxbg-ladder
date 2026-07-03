@@ -505,14 +505,17 @@ function App() {
               </div>
             )}
             {meP && !meP.dropped && (
-              <div style={{ textAlign: "center", marginTop: 14 }}>
-                <button
-                  onClick={tempDrop}
-                  style={{ background: "none", border: "none", cursor: "pointer", fontFamily: MONO, fontSize: 11, letterSpacing: 1, color: C.mute, textDecoration: "underline" }}
-                >
-                  Need a break? Temp drop off the ladder
-                </button>
-              </div>
+              <button
+                onClick={tempDrop}
+                style={{
+                  display: "block", width: "100%", textAlign: "center", marginTop: 12,
+                  padding: "12px 14px", border: `1px solid ${C.faint}`, borderRadius: 8,
+                  background: "none", cursor: "pointer",
+                  fontFamily: MONO, fontSize: 13, letterSpacing: 1, color: C.mute,
+                }}
+              >
+                NEED A BREAK? TEMP DROP OFF THE LADDER
+              </button>
             )}
             <a
               href="https://rally-report-six.vercel.app"
