@@ -286,6 +286,7 @@ function App() {
   const [session, setSession] = useState(null);
   const [players, setPlayers] = useState([]);
   const [challenges, setChallenges] = useState([]);
+  const [dropped, setDropped] = useState([]);
   const [settings, setSettings] = useState(null);
   const [tab, setTab] = useState("ladder");
   const [toast, setToast] = useState(null);
@@ -308,19 +309,23 @@ function App() {
 
   const meP = useMemo(() => {
     const email = session?.user?.email?.toLowerCase();
-    return email ? players.find((p) => p.email?.toLowerCase() === email) : null;
-  }, [session, players]);
+    if (!email) return null;
+    return players.find((p) => p.email?.toLowerCase() === email) ||
+      dropped.find((p) => p.email?.toLowerCase() === email) || null;
+  }, [session, players, dropped]);
 
   const byId = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p])), [players]);
 
   async function loadAll() {
     try { await supabase.rpc("tick"); } catch {}
-    const [p, c, s] = await Promise.all([
+    const [p, d, c, s] = await Promise.all([
       supabase.from("players").select("*").eq("active", true).order("rank"),
+      supabase.from("players").select("*").eq("dropped", true).order("name"),
       supabase.from("challenges").select("*").order("created_at", { ascending: false }),
       supabase.from("settings").select("*").eq("id", 1).single(),
     ]);
     if (p.data) setPlayers(p.data);
+    if (d.data) setDropped(d.data);
     if (c.data) setChallenges(c.data);
     if (s.data) setSettings(s.data);
     setLoading(false);
@@ -410,6 +415,15 @@ function App() {
     } catch (e) { say(e.message, true); }
   }
 
+  async function tempDrop() {
+    if (!confirm("Temp drop off the ladder? You'll lose your spot (everyone below moves up) and you'll need to contact Matt to re-join.")) return;
+    try {
+      await rpc("temp_drop");
+      say("You're off the ladder. Contact Matt when you're ready to come back!");
+      loadAll();
+    } catch (e) { say(e.message, true); }
+  }
+
   const tabs = [
     ["ladder", "Ladder"],
     ["matches", `Matches${myOpen.length ? ` (${myOpen.length})` : ""}`],
@@ -440,7 +454,22 @@ function App() {
         {/* LADDER */}
         {!loading && tab === "ladder" && (
           <>
-            {meP && settings && (
+            {meP && meP.dropped && (
+              <Card style={{ marginBottom: 10, border: `1px solid ${C.ball}` }}>
+                <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: 2, color: C.ball, textTransform: "uppercase", marginBottom: 6 }}>
+                  You're on a temp drop
+                </div>
+                <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+                  Please contact your admin Matt Selwyn to re-join when you are ready to play again!
+                </div>
+                <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 13 }}>
+                  <a href="tel:5404980799" style={{ color: C.ball, textDecoration: "none" }}>540-498-0799</a>
+                  {" · "}
+                  <a href="mailto:mselwyn20@gmail.com" style={{ color: C.ball, textDecoration: "none" }}>mselwyn20@gmail.com</a>
+                </div>
+              </Card>
+            )}
+            {meP && !meP.dropped && settings && (
               <div style={{ fontSize: 12, color: C.mute, fontFamily: MONO, marginBottom: 10 }}>
                 You're #{meP.rank}. Challenge up to {settings.challenge_range} spots up · {settings.max_active_challenges - myActiveCount} challenge{settings.max_active_challenges - myActiveCount === 1 ? "" : "s"} left
               </div>
@@ -465,6 +494,26 @@ function App() {
                 </div>
               )}
             </Card>
+            {dropped.length > 0 && (
+              <div style={{ marginTop: 12, padding: "10px 14px", border: `1px solid ${C.faint}`, borderRadius: 8 }}>
+                <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: 2, color: C.mute, textTransform: "uppercase", marginBottom: 4 }}>
+                  Temp drops ({dropped.length})
+                </div>
+                <div style={{ fontSize: 13, color: C.mute, lineHeight: 1.6 }}>
+                  {dropped.map((p) => p.name).join(" · ")}
+                </div>
+              </div>
+            )}
+            {meP && !meP.dropped && (
+              <div style={{ textAlign: "center", marginTop: 14 }}>
+                <button
+                  onClick={tempDrop}
+                  style={{ background: "none", border: "none", cursor: "pointer", fontFamily: MONO, fontSize: 11, letterSpacing: 1, color: C.mute, textDecoration: "underline" }}
+                >
+                  Need a break? Temp drop off the ladder
+                </button>
+              </div>
+            )}
             <a
               href="https://rally-report-six.vercel.app"
               target="_blank"
@@ -535,7 +584,7 @@ function App() {
 
         {/* ADMIN */}
         {!loading && tab === "admin" && meP?.is_admin && (
-          <AdminPanel players={players} settings={settings} say={say} reload={loadAll} meP={meP} />
+          <AdminPanel players={players} dropped={dropped} settings={settings} say={say} reload={loadAll} meP={meP} />
         )}
       </div>
 
@@ -633,7 +682,7 @@ function App() {
 }
 
 // ---- ADMIN PANEL ----
-function AdminPanel({ players, settings, say, reload, meP }) {
+function AdminPanel({ players, dropped = [], settings, say, reload, meP }) {
   const [s, setS] = useState(settings || {});
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -753,6 +802,29 @@ function AdminPanel({ players, settings, say, reload, meP }) {
           </div>
         ))}
       </Card>
+
+      {dropped.length > 0 && (
+        <>
+          <Eyebrow>Temp drops ({dropped.length})</Eyebrow>
+          <Card style={{ padding: 0 }}>
+            {dropped.map((p) => (
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderBottom: `1px solid ${C.faint}` }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, color: C.line, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                  <div style={{ fontSize: 11, color: C.mute, fontFamily: MONO }}>{p.email || "no email"}</div>
+                </div>
+                <Btn small onClick={async () => {
+                  try {
+                    await rpc("admin_reinstate_player", { p_player: p.id });
+                    say(`${p.name} is back on the ladder at the bottom`);
+                    reload();
+                  } catch (e) { say(e.message, true); }
+                }}>Reinstate</Btn>
+              </div>
+            ))}
+          </Card>
+        </>
+      )}
     </>
   );
 }
