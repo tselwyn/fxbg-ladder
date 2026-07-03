@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 // ================================================================
 // FXBG SINGLES LADDER — the ladder itself (system of record)
 // Companion app to Rally Report. Same court, same colors.
-// ================================================================
+// ================================================================tyler
 
 // ---- CONFIG (pencil-edit these, or set env vars in Vercel) ----
 const SUPABASE_URL =
