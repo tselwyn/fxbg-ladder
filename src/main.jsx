@@ -428,6 +428,7 @@ function App() {
     ["ladder", "Ladder"],
     ["matches", `Matches${myOpen.length ? ` (${myOpen.length})` : ""}`],
     ["history", "History"],
+    ["rules", "Rules"],
     ...(meP?.is_admin ? [["admin", "Admin"]] : []),
   ];
 
@@ -582,6 +583,38 @@ function App() {
                 </div>
               );
             })}
+          </>
+        )}
+
+        {/* RULES */}
+        {!loading && tab === "rules" && settings && (
+          <>
+            <Eyebrow>Ladder rules</Eyebrow>
+            <Card>
+              {[
+                ["Challenging", `Challenge anyone up to ${settings.challenge_range} spots above you. You can have ${settings.max_active_challenges} challenges out at a time, and only one open challenge between the same two players.`],
+                ["Accepting", `You have ${settings.accept_days} day${settings.accept_days === 1 ? "" : "s"} to accept or decline a challenge. After that it expires.`],
+                ["Playing", `Once accepted, you have ${settings.play_days} day${settings.play_days === 1 ? "" : "s"} to play the match. Winner or loser reports the score in the app.`],
+                ["Scores & ranking", `The other player confirms the score, or it auto-confirms after ${settings.confirm_hours} hours. When it's confirmed, the winner takes the loser's spot and everyone in between slides down one.`],
+                ...(settings.decay_enabled ? [["Staying active", `If you go ${settings.decay_days} days without playing a match or issuing a challenge, you drop one spot (unless you're already last). Keep playing to hold your rank!`]] : []),
+                ["Taking a break", `Use the temp drop button at the bottom of the ladder. You give up your spot, and everyone below you moves up. When you're ready to come back, contact Matt and you'll re-join at the bottom.`],
+              ].map(([title, body]) => (
+                <div key={title} style={{ marginBottom: 16 }}>
+                  <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: 2, color: C.ball, textTransform: "uppercase", marginBottom: 4 }}>{title}</div>
+                  <div style={{ fontSize: 14, lineHeight: 1.55, color: C.line }}>{body}</div>
+                </div>
+              ))}
+              <div style={{ borderTop: `1px solid ${C.faint}`, paddingTop: 14, marginTop: 4 }}>
+                <div style={{ fontSize: 14, lineHeight: 1.55, color: C.line }}>
+                  Questions? Contact your admin, Matt Selwyn
+                </div>
+                <div style={{ marginTop: 6, fontFamily: MONO, fontSize: 13 }}>
+                  <a href="tel:5404980799" style={{ color: C.ball, textDecoration: "none" }}>540-498-0799</a>
+                  {" · "}
+                  <a href="mailto:mselwyn20@gmail.com" style={{ color: C.ball, textDecoration: "none" }}>mselwyn20@gmail.com</a>
+                </div>
+              </div>
+            </Card>
           </>
         )}
 
