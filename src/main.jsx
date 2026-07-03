@@ -465,6 +465,19 @@ function App() {
                 </div>
               )}
             </Card>
+            <a
+              href="https://rally-report-six.vercel.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "block", textAlign: "center", marginTop: 12,
+                padding: "12px 14px", border: `1px solid ${C.faint}`, borderRadius: 8,
+                fontFamily: MONO, fontSize: 12, letterSpacing: 1,
+                color: C.ball, textDecoration: "none",
+              }}
+            >
+              MATCH LOGS &amp; SCOUTING REPORTS → RALLY REPORT
+            </a>
           </>
         )}
 
