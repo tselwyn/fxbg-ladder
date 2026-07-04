@@ -462,13 +462,23 @@ function App() {
           <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: 3, color: C.mute, textTransform: "uppercase" }}>FXBG Singles</div>
           <div style={{ fontFamily: MONO, fontWeight: 700, fontSize: 22, color: C.ball, letterSpacing: 1 }}>THE LADDER</div>
         </div>
-        {session ? (
-          <button onClick={confirmSignOut} style={{ background: "none", border: `1px solid ${C.faint}`, color: C.mute, borderRadius: 4, padding: "6px 10px", fontSize: 11, fontFamily: MONO, cursor: "pointer" }}>
-            {meP ? meP.name.split(" ")[0].toUpperCase() : "SIGNED IN"} · OUT
-          </button>
-        ) : (
-          <Btn small onClick={() => setShowLogin(true)}>Sign in</Btn>
-        )}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <a
+            href="https://rally-report-six.vercel.app"
+            target="_blank"
+            rel="noreferrer"
+            style={{ display: "inline-block", border: `1px solid ${C.ball}`, color: C.ball, borderRadius: 4, padding: "6px 10px", fontSize: 11, fontFamily: MONO, letterSpacing: 1, textDecoration: "none", fontWeight: 700 }}
+          >
+            RALLY REPORT ↗
+          </a>
+          {session ? (
+            <button onClick={confirmSignOut} style={{ background: "none", border: `1px solid ${C.faint}`, color: C.mute, borderRadius: 4, padding: "6px 10px", fontSize: 11, fontFamily: MONO, cursor: "pointer" }}>
+              {meP ? meP.name.split(" ")[0].toUpperCase() : "SIGNED IN"} · OUT
+            </button>
+          ) : (
+            <Btn small onClick={() => setShowLogin(true)}>Sign in</Btn>
+          )}
+        </div>
       </div>
 
       <div style={{ maxWidth: 560, margin: "0 auto", padding: "14px 12px" }}>
