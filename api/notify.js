@@ -48,20 +48,24 @@ export default async function handler(req, res) {
       to = challenger?.email;
       fromName = `${opponent.name} · FXBG Ladder`;
       replyTo = opponent?.email;
+      const daysToPlay = Math.max(1, Math.ceil((new Date(ch.play_by) - Date.now()) / 86400000));
       subject = `${opponent.name} accepted your challenge`;
-      html = `<p><b>${opponent.name}</b> accepted. Play and report the score by <b>${new Date(ch.play_by).toLocaleDateString()}</b>.</p>
-        <p>Contact: ${opponent.phone ? opponent.phone + " · " : ""}${opponent.email || ""}</p>
-        <p>Reply to this email to set up the match.</p>${btn}`;
+      html = `<p>Awesome — <b>${opponent.name}</b> has accepted your challenge!</p>
+        <p>Use the contact information below to reach your opponent and set up all match details. Remember, you have <b>${daysToPlay} days</b> (by <b>${new Date(ch.play_by).toLocaleDateString()}</b>) to complete your match before it expires.</p>
+        <p style="font-family:monospace;line-height:1.8">
+          ${opponent.email ? `EMAIL: <a href="mailto:${opponent.email}">${opponent.email}</a><br/>` : ""}
+          ${opponent.phone ? `PHONE: <a href="tel:${opponent.phone}">${opponent.phone}</a>` : ""}
+        </p>
+        <p>You can also just reply to this email — it goes straight to ${opponent.name}.</p>${btn}`;
     } else if (type === "reported") {
       const loserId = ch.winner_id === ch.challenger_id ? ch.opponent_id : ch.challenger_id;
       const [loser] = await sbFetch(`players?id=eq.${loserId}&select=*`);
       const winner = ch.winner_id === ch.challenger_id ? challenger : opponent;
-      to = loser?.email;
-      fromName = `${winner.name} · FXBG Ladder`;
-      replyTo = winner?.email;
-      subject = `Score reported: ${winner.name} def. ${loser.name} ${ch.score}`;
-      html = `<p>A score was reported for your match: <b>${winner.name}</b> def. <b>${loser.name}</b> ${ch.score}.</p>
-        <p>Confirm it in the app, or it auto-confirms by <b>${new Date(ch.confirm_by).toLocaleString()}</b>.</p>${btn}`;
+      to = [challenger?.email, opponent?.email].filter(Boolean);
+      fromName = `FXBG Ladder`;
+      subject = `Final: ${winner.name} def. ${loser.name}${ch.score && ch.score !== "n/a" ? ` ${ch.score}` : ""}`;
+      html = `<p>The score has been recorded: <b>${winner.name}</b> def. <b>${loser.name}</b>${ch.score && ch.score !== "n/a" ? ` ${ch.score}` : ""}.</p>
+        <p>The ladder has been updated. If this score was reported in error, contact Matt.</p>${btn}`;
     } else {
       return res.status(400).json({ error: "Unknown type" });
     }
