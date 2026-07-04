@@ -399,8 +399,21 @@ function App() {
 
   async function sendLogin() {
     try {
+      const email = loginEmail.trim().toLowerCase();
+      if (!email) throw new Error("Enter your email");
+      // Only players on the ladder can sign in. Everyone else gets routed to Matt.
+      const { data: match, error: lookupErr } = await supabase
+        .from("players")
+        .select("id")
+        .ilike("email", email)
+        .limit(1);
+      if (lookupErr) throw lookupErr;
+      if (!match || match.length === 0) {
+        say("That email isn't on the ladder. Contact Matt Selwyn to join: 540-498-0799", true);
+        return;
+      }
       const { error } = await supabase.auth.signInWithOtp({
-        email: loginEmail.trim(),
+        email,
         options: { emailRedirectTo: window.location.origin },
       });
       if (error) throw error;
