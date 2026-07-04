@@ -258,7 +258,7 @@ function ChallengeCard({ ch, meP, byId, act }) {
   const label =
     ch.status === "pending" ? (iAmChallenger ? "Waiting on them to accept" : "They challenged you") :
     ch.status === "accepted" ? "Match on — play + report" :
-    ch.status === "reported" ? "Score reported — needs confirming" : ch.status;
+    ch.status === "reported" ? "Score recorded" : ch.status;
   return (
     <Card style={{ marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -271,7 +271,7 @@ function ChallengeCard({ ch, meP, byId, act }) {
       <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute, marginTop: 4 }}>
         {ch.status === "pending" && <>accept within {daysLeft(ch.accept_by)}d ({fmtDate(ch.accept_by)})</>}
         {ch.status === "accepted" && <>play by {fmtDate(ch.play_by)} ({daysLeft(ch.play_by)}d left)</>}
-        {ch.status === "reported" && <>score: {ch.score} · auto-confirms in {hoursLeft(ch.confirm_by)}h</>}
+        {ch.status === "reported" && <>score: {ch.score}</>}
       </div>
       {ch.status === "accepted" && (opp.email || opp.phone) && (
         <div style={{ fontSize: 12, color: C.line, marginTop: 8, fontFamily: MONO }}>
@@ -291,9 +291,6 @@ function ChallengeCard({ ch, meP, byId, act }) {
         )}
         {ch.status === "accepted" && (
           <Btn small onClick={() => act("report", ch)}>Report score</Btn>
-        )}
-        {ch.status === "reported" && meP && ch.winner_id !== meP.id && (iAmChallenger || iAmOpponent) && (
-          <Btn small onClick={() => act("confirm", ch)}>Confirm score</Btn>
         )}
       </div>
     </Card>
@@ -466,7 +463,6 @@ function App() {
       if (kind === "accept") { await rpc("accept_challenge", { p_id: ch.id }); notify("accepted", ch.id); say("Challenge accepted — contact info unlocked"); }
       if (kind === "decline") { if (!confirm("Decline this challenge?")) return; await rpc("decline_challenge", { p_id: ch.id }); say("Challenge declined"); }
       if (kind === "cancel") { if (!confirm("Withdraw this challenge?")) return; await rpc("cancel_challenge", { p_id: ch.id }); say("Challenge withdrawn"); }
-      if (kind === "confirm") { await rpc("confirm_score", { p_id: ch.id }); say("Score confirmed — ladder updated"); }
       if (kind === "report") { setReporting(ch); setWinnerId(null); setScore(""); return; }
       loadAll();
     } catch (e) { say(e.message, true); }
@@ -475,9 +471,11 @@ function App() {
   async function submitScore() {
     try {
       if (!winnerId) throw new Error("Pick who won");
+      const wName = byId[winnerId]?.name || "This player";
+      if (!confirm(`${wName} won${score.trim() ? `, ${score.trim()}` : ""}? This is final — the ladder updates immediately.`)) return;
       await rpc("report_score", { p_id: reporting.id, p_winner: winnerId, p_score: score.trim() || "n/a" });
       notify("reported", reporting.id);
-      say("Score reported — waiting on confirmation");
+      say("Score recorded — ladder updated");
       setReporting(null);
       loadAll();
     } catch (e) { say(e.message, true); }
@@ -704,7 +702,7 @@ function App() {
                 ...(settings.rematch_days > 0 ? [["Rematches", `Once a score is reported, you and that opponent can't challenge each other again for ${settings.rematch_days} days — even if the rankings change. Keeps the ladder fresh.`]] : []),
                 ["Accepting", `You have ${settings.accept_days} day${settings.accept_days === 1 ? "" : "s"} to accept or decline a challenge. After that it expires.`],
                 ["Playing", `Once accepted, you have ${settings.play_days} day${settings.play_days === 1 ? "" : "s"} to play the match. Winner or loser reports the score in the app.`],
-                ["Scores & ranking", `The other player confirms the score, or it auto-confirms after ${settings.confirm_hours} hours. When it's confirmed, the winner takes the loser's spot and everyone in between slides down one.`],
+                ["Scores & ranking", `Either player — winner or loser — reports the score, and it's final immediately: the winner takes the loser's spot and everyone in between slides down one. Misreported a score? Contact Matt.`],
                 ...(settings.decay_enabled ? [["Staying active", `If you go ${settings.decay_days} days without playing a match or issuing a challenge, you drop one spot (unless you're already last). Keep playing to hold your rank!`]] : []),
                 ["Taking a break", `Use the temp drop button at the bottom of the ladder. You give up your spot, and everyone below you moves up. When you're ready to come back, contact Matt and you'll re-join at the bottom.`],
               ].map(([title, body]) => (
@@ -810,7 +808,7 @@ function App() {
             </div>
             <Field label="Score" value={score} onChange={setScore} placeholder="e.g. 6-4, 7-5" />
             <div style={{ fontSize: 12, color: C.mute, marginBottom: 14 }}>
-              The other player confirms, or it auto-confirms in {settings?.confirm_hours} hours. The bump applies on confirmation.
+              Either player can report — winner or loser. The score is final and the ladder updates the moment you submit.
             </div>
             <Btn onClick={submitScore} disabled={!winnerId}>Submit score</Btn>
           </>
@@ -921,7 +919,6 @@ function AdminPanel({ players, dropped = [], settings, say, reload, meP }) {
         <Field {...num("max_active_challenges")} />
         <Field {...num("accept_days")} />
         <Field {...num("play_days")} />
-        <Field {...num("confirm_hours")} />
         <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, cursor: "pointer" }}>
           <input type="checkbox" checked={!!s.decay_enabled} onChange={(e) => setS({ ...s, decay_enabled: e.target.checked })} />
           <span style={{ fontSize: 13, color: C.line }}>Inactivity decay (drop 1 spot per {s.decay_days || 30} idle days)</span>
