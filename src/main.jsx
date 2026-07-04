@@ -473,7 +473,7 @@ function App() {
           </a>
           {session ? (
             <button onClick={confirmSignOut} style={{ background: "none", border: `1px solid ${C.faint}`, color: C.mute, borderRadius: 4, padding: "6px 10px", fontSize: 11, fontFamily: MONO, cursor: "pointer" }}>
-              {meP ? meP.name.split(" ")[0].toUpperCase() : "SIGNED IN"} · OUT
+              LOG OUT
             </button>
           ) : (
             <Btn small onClick={() => setShowLogin(true)}>Sign in</Btn>
