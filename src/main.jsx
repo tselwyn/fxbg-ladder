@@ -378,10 +378,20 @@ function App() {
   };
   const myActiveCount = meP ? open.filter((c) => c.challenger_id === meP.id).length : 0;
 
+  const rematchBlocked = (pid) => {
+    if (!meP || !settings || !(settings.rematch_days > 0)) return false;
+    const cutoff = Date.now() - settings.rematch_days * 86400000;
+    return completed.some((c) =>
+      ((c.challenger_id === meP.id && c.opponent_id === pid) ||
+       (c.challenger_id === pid && c.opponent_id === meP.id)) &&
+      c.reported_at && new Date(c.reported_at).getTime() > cutoff);
+  };
+
   const canChallenge = (p) =>
     meP && settings && p.id !== meP.id && p.rank < meP.rank &&
     meP.rank - p.rank <= settings.challenge_range &&
-    myActiveCount < settings.max_active_challenges && !openWith(p.id);
+    myActiveCount < settings.max_active_challenges && !openWith(p.id) &&
+    !rematchBlocked(p.id);
 
   const myDeadlines = useMemo(() => {
     if (!meP) return [];
@@ -691,6 +701,7 @@ function App() {
             <Card>
               {[
                 ["Challenging", `Challenge anyone up to ${settings.challenge_range} spots above you. You can have ${settings.max_active_challenges} challenges out at a time, and only one open challenge between the same two players.`],
+                ...(settings.rematch_days > 0 ? [["Rematches", `Once a score is reported, you and that opponent can't challenge each other again for ${settings.rematch_days} days — even if the rankings change. Keeps the ladder fresh.`]] : []),
                 ["Accepting", `You have ${settings.accept_days} day${settings.accept_days === 1 ? "" : "s"} to accept or decline a challenge. After that it expires.`],
                 ["Playing", `Once accepted, you have ${settings.play_days} day${settings.play_days === 1 ? "" : "s"} to play the match. Winner or loser reports the score in the app.`],
                 ["Scores & ranking", `The other player confirms the score, or it auto-confirms after ${settings.confirm_hours} hours. When it's confirmed, the winner takes the loser's spot and everyone in between slides down one.`],
@@ -916,6 +927,7 @@ function AdminPanel({ players, dropped = [], settings, say, reload, meP }) {
           <span style={{ fontSize: 13, color: C.line }}>Inactivity decay (drop 1 spot per {s.decay_days || 30} idle days)</span>
         </label>
         <Field {...num("decay_days")} />
+        <Field {...num("rematch_days")} />
         <Btn onClick={saveSettings}>Save settings</Btn>
       </Card>
 
