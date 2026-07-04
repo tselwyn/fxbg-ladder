@@ -213,7 +213,7 @@ function LadderRow({ p, meP, canChallenge, openCh, onTap, act }) {
           {p.wins}–{p.losses}
           {p.streak !== 0 && (
             <span style={{ marginLeft: 8, color: p.streak > 0 ? C.ball : C.red }}>
-              {p.streak > 0 ? "W" : "L"}{Math.abs(p.streak)}
+              {p.streak > 0 ? "W" : "L"}{Math.abs(p.streak)}{p.streak >= 3 ? " 🔥" : ""}
             </span>
           )}
         </div>
@@ -326,6 +326,15 @@ function App() {
     setTimeout(() => setToast(null), 3500);
   };
 
+  const [refreshing, setRefreshing] = useState(false);
+  async function refresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try { await loadAll(); say("Up to date"); }
+    catch { say("Refresh failed — check your connection", true); }
+    setRefreshing(false);
+  }
+
   const meP = useMemo(() => {
     const email = session?.user?.email?.toLowerCase();
     if (!email) return null;
@@ -373,6 +382,20 @@ function App() {
     meP && settings && p.id !== meP.id && p.rank < meP.rank &&
     meP.rank - p.rank <= settings.challenge_range &&
     myActiveCount < settings.max_active_challenges && !openWith(p.id);
+
+  const myDeadlines = useMemo(() => {
+    if (!meP) return [];
+    return myOpen
+      .map((c) => {
+        if (c.status === "pending" && c.opponent_id === meP.id)
+          return { verb: "ACCEPT", by: c.accept_by, who: byId[c.challenger_id]?.name };
+        if (c.status === "accepted")
+          return { verb: "PLAY", by: c.play_by, who: byId[c.challenger_id === meP.id ? c.opponent_id : c.challenger_id]?.name };
+        return null;
+      })
+      .filter((d) => d && d.by)
+      .sort((a, b) => new Date(a.by) - new Date(b.by));
+  }, [meP, myOpen, byId]);
 
   async function sendLogin() {
     try {
@@ -463,14 +486,24 @@ function App() {
           <div style={{ fontFamily: MONO, fontWeight: 700, fontSize: 22, color: C.ball, letterSpacing: 1 }}>THE LADDER</div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-          <a
-            href="https://rally-report-six.vercel.app"
-            target="_blank"
-            rel="noreferrer"
-            style={{ display: "inline-block", border: `1px solid ${C.ball}`, color: C.ball, borderRadius: 4, padding: "6px 10px", fontSize: 11, fontFamily: MONO, letterSpacing: 1, textDecoration: "none", fontWeight: 700 }}
-          >
-            RALLY REPORT ↗
-          </a>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              onClick={refresh}
+              disabled={refreshing}
+              aria-label="Refresh"
+              style={{ background: "none", border: `1px solid ${C.faint}`, color: refreshing ? C.faint : C.mute, borderRadius: 4, padding: "6px 9px", fontSize: 12, fontFamily: MONO, cursor: refreshing ? "default" : "pointer", lineHeight: 1 }}
+            >
+              {refreshing ? "…" : "↻"}
+            </button>
+            <a
+              href="https://rally-report-six.vercel.app"
+              target="_blank"
+              rel="noreferrer"
+              style={{ display: "inline-block", border: `1px solid ${C.ball}`, color: C.ball, borderRadius: 4, padding: "6px 10px", fontSize: 11, fontFamily: MONO, letterSpacing: 1, textDecoration: "none", fontWeight: 700 }}
+            >
+              RALLY REPORT ↗
+            </a>
+          </div>
           {session ? (
             <button onClick={confirmSignOut} style={{ background: "none", border: `1px solid ${C.faint}`, color: C.mute, borderRadius: 4, padding: "6px 10px", fontSize: 11, fontFamily: MONO, cursor: "pointer" }}>
               LOG OUT
@@ -502,6 +535,25 @@ function App() {
                 </div>
               </Card>
             )}
+            {meP && !meP.dropped && myDeadlines.length > 0 && (() => {
+              const d = myDeadlines[0];
+              const dl = daysLeft(d.by);
+              const urgent = dl <= 1;
+              const col = urgent ? C.red : C.ball;
+              return (
+                <div
+                  onClick={() => setTab("matches")}
+                  style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${col}`, borderRadius: 8, padding: "10px 12px", marginBottom: 10, cursor: "pointer", background: urgent ? "rgba(232,96,76,0.08)" : "rgba(216,245,41,0.05)" }}
+                >
+                  <span style={{ fontSize: 14 }}>⏱</span>
+                  <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: col, letterSpacing: 1, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {d.verb} BY {fmtDate(d.by).toUpperCase()} · {dl}D LEFT{d.who ? ` · VS ${d.who.toUpperCase()}` : ""}
+                    {myDeadlines.length > 1 ? ` · +${myDeadlines.length - 1} MORE` : ""}
+                  </span>
+                  <span style={{ fontFamily: MONO, fontSize: 12, color: col }}>→</span>
+                </div>
+              );
+            })()}
             {meP && !meP.dropped && settings && (
               <div style={{ fontSize: 12, color: C.mute, fontFamily: MONO, marginBottom: 10 }}>
                 You're #{meP.rank}. Challenge up to {settings.challenge_range} spots up · {settings.max_active_challenges - myActiveCount} challenge{settings.max_active_challenges - myActiveCount === 1 ? "" : "s"} left
