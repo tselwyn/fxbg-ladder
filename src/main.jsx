@@ -461,8 +461,8 @@ function App() {
   async function act(kind, ch) {
     try {
       if (kind === "accept") { await rpc("accept_challenge", { p_id: ch.id }); notify("accepted", ch.id); say("Challenge accepted — contact info unlocked"); }
-      if (kind === "decline") { if (!confirm("Decline this challenge?")) return; await rpc("decline_challenge", { p_id: ch.id }); say("Challenge declined"); }
-      if (kind === "cancel") { if (!confirm("Withdraw this challenge?")) return; await rpc("cancel_challenge", { p_id: ch.id }); say("Challenge withdrawn"); }
+      if (kind === "decline") { if (!confirm("Decline this challenge?")) return; await rpc("decline_challenge", { p_id: ch.id }); notify("declined", ch.id); say("Challenge declined"); }
+      if (kind === "cancel") { if (!confirm("Withdraw this challenge?")) return; await rpc("cancel_challenge", { p_id: ch.id }); notify("withdrawn", ch.id); say("Challenge withdrawn"); }
       if (kind === "report") { setReporting(ch); setWinnerId(null); setScore(""); return; }
       loadAll();
     } catch (e) { say(e.message, true); }
