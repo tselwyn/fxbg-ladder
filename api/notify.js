@@ -55,8 +55,8 @@ export default async function handler(req, res) {
       html = `<p>Awesome — <b>${opponent.name}</b> has accepted your challenge!</p>
         <p>Use the contact information below to reach your opponent and set up all match details. Remember, you have <b>${daysToPlay} days</b> (by <b>${new Date(ch.play_by).toLocaleDateString()}</b>) to complete your match before it expires.</p>
         <p style="font-family:monospace;line-height:1.8">
-          ${opponent.email ? `EMAIL: <a href="mailto:${opponent.email}">${opponent.email}</a><br/>` : ""}
-          ${opponent.phone ? `PHONE: <a href="tel:${opponent.phone}">${opponent.phone}</a>` : ""}
+          ${opponent.phone ? `PHONE: <a href="tel:${opponent.phone}">${opponent.phone}</a><br/>` : ""}
+          ${opponent.email ? `EMAIL: <a href="mailto:${opponent.email}">${opponent.email}</a>` : ""}
         </p>
         <p>You can also just reply to this email — it goes straight to ${opponent.name}.</p>${btn}`;
     } else if (type === "reported") {
