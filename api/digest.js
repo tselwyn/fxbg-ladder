@@ -72,8 +72,11 @@ export default async function handler(req, res) {
 
     const buildHtml = (token) => `
       <div style="font-family:Arial,sans-serif;color:#0F2E25;max-width:640px">
-        <h2 style="margin:0 0 4px">Daily Results for FXBG Singles Tennis</h2>
-        <p style="margin:0 0 16px;color:#5a6b64">${dateStr}</p>
+        <div style="background:#0F2E25;border-radius:8px 8px 0 0;padding:18px 22px;margin:0 0 18px">
+          <div style="font-size:30px;line-height:1">\ud83c\udfbe</div>
+          <h2 style="margin:6px 0 0;color:#D8F529;font-family:Arial,sans-serif">Daily Results — FXBG Singles Tennis</h2>
+        </div>
+        <p style="margin:-8px 0 16px;color:#5a6b64">${dateStr}</p>
         <table cellpadding="0" cellspacing="0">${resultRows}</table>
         ${pendingRows ? `<h3 style="margin:24px 0 8px">Pending Challenges</h3>
         <table cellpadding="0" cellspacing="0">${pendingRows}</table>` : ""}
