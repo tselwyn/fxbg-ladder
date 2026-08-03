@@ -746,9 +746,9 @@ function App() {
         {loginSent ? (
           <>
             <div style={{ color: C.line, fontSize: 14, lineHeight: 1.5, marginBottom: 14 }}>
-              Check your email at <b>{loginEmail}</b> — the fastest way in is to just <b>click the sign-in link</b> in that email. Or type the code from the same email below.
+              We emailed a 6-digit code to <b>{loginEmail}</b>. Type it below — don't close this screen. You'll only ever do this once on this device.
             </div>
-            <Field label="Sign-in code (from the email)" value={loginCode} onChange={setLoginCode} placeholder="6-digit code" />
+            <Field label="Code from the email" value={loginCode} onChange={setLoginCode} placeholder="6-digit code" />
             <div style={{ display: "flex", gap: 8 }}>
               <Btn onClick={verifyCode} disabled={loginCode.trim().length < 6}>Sign in</Btn>
               <Btn kind="ghost" onClick={() => { setLoginSent(false); setLoginCode(""); }}>Different email</Btn>
@@ -760,10 +760,10 @@ function App() {
         ) : (
           <>
             <div style={{ color: C.mute, fontSize: 13, marginBottom: 14 }}>
-              Use the email you're registered on the ladder with. No password — we'll email you a one-click sign-in link.
+              Use the email you're registered on the ladder with. No password — we'll email you a 6-digit code. You only sign in once per device.
             </div>
             <Field label="Email" type="email" value={loginEmail} onChange={setLoginEmail} placeholder="you@example.com" />
-            <Btn onClick={sendLogin} disabled={!loginEmail.includes("@")}>Email me a sign-in link</Btn>
+            <Btn onClick={sendLogin} disabled={!loginEmail.includes("@")}>Email me a code</Btn>
           </>
         )}
       </Sheet>
