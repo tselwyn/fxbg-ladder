@@ -41,8 +41,10 @@ export default async function handler(req, res) {
       fromName = `${challenger.name} · FXBG Ladder`;
       replyTo = challenger?.email;
       subject = `${challenger.name} challenged you on the FXBG ladder`;
+      const acceptUrl = `${process.env.SITE_URL || site}/api/accept?c=${ch.id}&t=${opponent.email_token || ""}`;
       html = `<p><b>${challenger.name}</b> (#${challenger.rank}) has challenged you (#${opponent.rank}).</p>
         <p>Accept by <b>${new Date(ch.accept_by).toLocaleDateString()}</b> or the challenge expires.</p>
+        <p><a href="${acceptUrl}" style="background:#0F2E25;color:#D8F529;padding:12px 20px;border-radius:4px;text-decoration:none;font-weight:bold">Click here to accept the challenge</a></p>
         <p>Reply to this email to reach ${challenger.name} directly.</p>${btn}`;
     } else if (type === "accepted") {
       to = challenger?.email;
