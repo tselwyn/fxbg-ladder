@@ -308,10 +308,14 @@ function App() {
   const [toast, setToast] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginSent, setLoginSent] = useState(false);
+  // If the page reloads while someone is off fetching their code (email app
+  // switch on some phones), restore the "enter your code" screen instead of
+  // dumping them back at the start.
+  const pendingLogin = (() => { try { return localStorage.getItem("pendingLoginEmail") || ""; } catch { return ""; } })();
+  const [loginEmail, setLoginEmail] = useState(pendingLogin);
+  const [loginSent, setLoginSent] = useState(!!pendingLogin);
   const [loginCode, setLoginCode] = useState("");
-  const [showLogin, setShowLogin] = useState(false);
+  const [showLogin, setShowLogin] = useState(!!pendingLogin);
 
   const [target, setTarget] = useState(null);      // player being challenged
   const [reporting, setReporting] = useState(null); // challenge being scored
@@ -424,6 +428,7 @@ function App() {
         options: { emailRedirectTo: window.location.origin },
       });
       if (error) throw error;
+      try { localStorage.setItem("pendingLoginEmail", email); } catch {}
       setLoginSent(true);
     } catch (e) { say(e.message, true); }
   }
@@ -436,6 +441,7 @@ function App() {
         type: "email",
       });
       if (error) throw error;
+      try { localStorage.removeItem("pendingLoginEmail"); } catch {}
       setShowLogin(false); setLoginSent(false); setLoginCode("");
       say("Signed in — you'll stay signed in on this device");
       loadAll();
@@ -742,16 +748,16 @@ function App() {
       </div>
 
       {/* sign-in sheet */}
-      <Sheet open={showLogin} onClose={() => { setShowLogin(false); setLoginSent(false); }} title="Sign in">
+      <Sheet open={showLogin} onClose={() => { try { localStorage.removeItem("pendingLoginEmail"); } catch {} setShowLogin(false); setLoginSent(false); }} title="Sign in">
         {loginSent ? (
           <>
             <div style={{ color: C.line, fontSize: 14, lineHeight: 1.5, marginBottom: 14 }}>
-              We emailed a 6-digit code to <b>{loginEmail}</b>. Type it below — don't close this screen. You'll only ever do this once on this device.
+              We emailed a 6-digit code to <b>{loginEmail}</b>. The code is right in the email's subject line — you can read it from the notification. Type it below. You'll only ever do this once on this device.
             </div>
             <Field label="Code from the email" value={loginCode} onChange={setLoginCode} placeholder="6-digit code" />
             <div style={{ display: "flex", gap: 8 }}>
               <Btn onClick={verifyCode} disabled={loginCode.trim().length < 6}>Sign in</Btn>
-              <Btn kind="ghost" onClick={() => { setLoginSent(false); setLoginCode(""); }}>Different email</Btn>
+              <Btn kind="ghost" onClick={() => { try { localStorage.removeItem("pendingLoginEmail"); } catch {} setLoginSent(false); setLoginCode(""); }}>Different email</Btn>
             </div>
             <div style={{ color: C.mute, fontSize: 12, marginTop: 12 }}>
               You'll stay signed in on this device until you sign out.
