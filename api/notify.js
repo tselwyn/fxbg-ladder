@@ -66,6 +66,30 @@ export default async function handler(req, res) {
       subject = `Final: ${winner.name} def. ${loser.name}${ch.score && ch.score !== "n/a" ? ` ${ch.score}` : ""}`;
       html = `<p>The score has been recorded: <b>${winner.name}</b> def. <b>${loser.name}</b>${ch.score && ch.score !== "n/a" ? ` ${ch.score}` : ""}.</p>
         <p>The ladder has been updated. If this score was reported in error, contact Matt.</p>${btn}`;
+
+      // Also alert all admins (skip any admin who played the match — they already
+      // get the player email above). Fire-and-forget; never blocks the player email.
+      try {
+        const admins = await sbFetch(`players?is_admin=eq.true&select=email,name`);
+        const playerEmails = to.map((e) => e.toLowerCase());
+        const adminTo = (admins || [])
+          .map((a) => a.email)
+          .filter((e) => e && !playerEmails.includes(e.toLowerCase()));
+        if (adminTo.length) {
+          const fromAddrA = FROM.includes("<") ? FROM.match(/<([^>]+)>/)[1] : FROM;
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND}` },
+            body: JSON.stringify({
+              from: `FXBG Ladder Admin <${fromAddrA}>`,
+              to: adminTo,
+              subject: `[Admin] Score reported: ${winner.name} def. ${loser.name}${ch.score && ch.score !== "n/a" ? ` ${ch.score}` : ""}`,
+              html: `<p><b>${winner.name}</b> (#${winner.rank}) def. <b>${loser.name}</b> (#${loser.rank})${ch.score && ch.score !== "n/a" ? ` — <b>${ch.score}</b>` : ""}.</p>
+                <p>Reported ${new Date(ch.reported_at || Date.now()).toLocaleString("en-US", { timeZone: "America/New_York" })} ET. The ladder has been updated automatically.</p>${btn}`,
+            }),
+          });
+        }
+      } catch (_) { /* admin alert is best-effort */ }
     } else {
       return res.status(400).json({ error: "Unknown type" });
     }
