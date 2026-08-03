@@ -191,7 +191,7 @@ function Movement({ n }) {
   );
 }
 
-function LadderRow({ p, meP, canChallenge, openCh, onTap, act }) {
+function LadderRow({ p, meP, canChallenge, blockReason, openCh, onTap, act }) {
   const isMe = meP && p.id === meP.id;
   const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
   return (
@@ -243,6 +243,12 @@ function LadderRow({ p, meP, canChallenge, openCh, onTap, act }) {
       {canChallenge && !openCh && (
         <div style={{ fontFamily: MONO, fontSize: 11, color: C.ball, border: `1px solid rgba(216,245,41,0.4)`, borderRadius: 3, padding: "3px 8px" }}>
           CHALLENGE
+        </div>
+      )}
+      {!canChallenge && !openCh && blockReason && (
+        <div title={blockReason === "COOLDOWN" ? "You played recently — rematch cooldown active" : "Someone already has an open challenge with this player"}
+          style={{ fontFamily: MONO, fontSize: 10, color: C.red, border: `1px solid rgba(232,96,76,0.5)`, borderRadius: 3, padding: "3px 7px" }}>
+          {blockReason}
         </div>
       )}
     </div>
@@ -388,11 +394,27 @@ function App() {
       c.reported_at && new Date(c.reported_at).getTime() > cutoff);
   };
 
+  // A player can only be challenged by so many people at once (default 1)
+  const incomingBusy = (pid) =>
+    challenges.filter((c) => ["pending", "accepted"].includes(c.status) &&
+      c.opponent_id === pid && c.challenger_id !== (meP && meP.id)).length >=
+    ((settings && settings.max_incoming_challenges) ?? 1);
+
   const canChallenge = (p) =>
     meP && settings && p.id !== meP.id && p.rank < meP.rank &&
     meP.rank - p.rank <= settings.challenge_range &&
     myActiveCount < settings.max_active_challenges && !openWith(p.id) &&
-    !rematchBlocked(p.id);
+    !rematchBlocked(p.id) && !incomingBusy(p.id);
+
+  // Why can't I challenge this otherwise-in-range player? (for the red chip)
+  const blockReason = (p) => {
+    if (!meP || !settings || p.id === meP.id || p.rank >= meP.rank) return null;
+    if (meP.rank - p.rank > settings.challenge_range) return null;
+    if (openWith(p.id)) return null; // row already shows the open-challenge UI
+    if (rematchBlocked(p.id)) return "COOLDOWN";
+    if (incomingBusy(p.id)) return "CHALLENGED";
+    return null;
+  };
 
   const myDeadlines = useMemo(() => {
     if (!meP) return [];
@@ -596,6 +618,7 @@ function App() {
                 <LadderRow
                   key={p.id} p={p} meP={meP}
                   canChallenge={canChallenge(p)}
+                  blockReason={blockReason(p)}
                   openCh={openWith(p.id)}
                   onTap={() => canChallenge(p) && setTarget(p)}
                   act={act}
@@ -705,6 +728,7 @@ function App() {
             <Card>
               {[
                 ["Challenging", `Challenge anyone up to ${settings.challenge_range} spots above you. You can have ${settings.max_active_challenges} challenges out at a time, and only one open challenge between the same two players.`],
+                ["Being challenged", `A player can only have ${(settings.max_incoming_challenges ?? 1) === 1 ? "one open incoming challenge" : `${settings.max_incoming_challenges} open incoming challenges`} at a time. If you see a red CHALLENGED tag, someone beat you to them — wait until that match wraps up.`],
                 ...(settings.rematch_days > 0 ? [["Rematches", `Once a score is reported, you and that opponent can't challenge each other again for ${settings.rematch_days} days — even if the rankings change. Keeps the ladder fresh.`]] : []),
                 ["Accepting", `You have ${settings.accept_days} day${settings.accept_days === 1 ? "" : "s"} to accept or decline a challenge. After that it expires.`],
                 ["Playing", `Once accepted, you have ${settings.play_days} day${settings.play_days === 1 ? "" : "s"} to play the match. Winner or loser reports the score in the app.`],
@@ -923,6 +947,7 @@ function AdminPanel({ players, dropped = [], settings, say, reload, meP }) {
       <Card style={{ marginBottom: 16 }}>
         <Field {...num("challenge_range")} />
         <Field {...num("max_active_challenges")} />
+        <Field {...num("max_incoming_challenges")} />
         <Field {...num("accept_days")} />
         <Field {...num("play_days")} />
         <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, cursor: "pointer" }}>
