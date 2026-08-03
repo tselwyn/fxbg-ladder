@@ -246,9 +246,9 @@ function LadderRow({ p, meP, canChallenge, blockReason, openCh, onTap, act }) {
         </div>
       )}
       {!canChallenge && !openCh && blockReason && (
-        <div title={blockReason === "COOLDOWN" ? "You played recently — rematch cooldown active" : "Someone already has an open challenge with this player"}
+        <div title={blockReason === "COOLDOWN" ? "Ineligible — you played this player recently (rematch cooldown)" : "Ineligible — this player is already tied up in a challenge"}
           style={{ fontFamily: MONO, fontSize: 10, color: C.red, border: `1px solid rgba(232,96,76,0.5)`, borderRadius: 3, padding: "3px 7px" }}>
-          {blockReason}
+          INELIGIBLE
         </div>
       )}
     </div>
