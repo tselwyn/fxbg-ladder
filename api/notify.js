@@ -92,6 +92,20 @@ export default async function handler(req, res) {
           });
         }
       } catch (_) { /* admin alert is best-effort */ }
+    } else if (type === "withdrawn") {
+      // Challenger pulled the challenge — tell the opponent
+      to = opponent?.email;
+      fromName = `FXBG Ladder`;
+      subject = `${challenger.name} withdrew their challenge`;
+      html = `<p><b>${challenger.name}</b> has withdrawn their challenge against you.</p>
+        <p>No action needed — you're free to make or receive other challenges.</p>${btn}`;
+    } else if (type === "declined") {
+      // Opponent said no — tell the challenger
+      to = challenger?.email;
+      fromName = `FXBG Ladder`;
+      subject = `${opponent.name} declined your challenge`;
+      html = `<p><b>${opponent.name}</b> has declined your challenge.</p>
+        <p>You're free to challenge someone else.</p>${btn}`;
     } else {
       return res.status(400).json({ error: "Unknown type" });
     }
