@@ -908,6 +908,12 @@ function AdminPanel({ players, dropped = [], settings, say, reload, meP }) {
     catch (e) { say(e.message, true); }
   }
 
+  async function adminTempDrop(p) {
+    if (!confirm(`Temp drop ${p.name} (vacation etc.)? They lose their spot, everyone below moves up, and any open challenges are cancelled. Reinstate them from the Temp drops list when they're back.`)) return;
+    try { await rpc("admin_temp_drop", { p_player: p.id }); say(`${p.name} is on a temp drop`); reload(); }
+    catch (e) { say(e.message, true); }
+  }
+
   async function toggleAdmin(p) {
     if (meP && p.id === meP.id) {
       say("You can't remove your own admin — ask the other admin to do it", true);
@@ -972,6 +978,7 @@ function AdminPanel({ players, dropped = [], settings, say, reload, meP }) {
             </div>
             <Btn small kind="ghost" onClick={() => setRank(p)}>Rank</Btn>
             <Btn small kind="ghost" onClick={() => toggleAdmin(p)}>★</Btn>
+            <Btn small kind="ghost" onClick={() => adminTempDrop(p)} title="Temp drop (vacation)">⏸</Btn>
             <Btn small kind="danger" onClick={() => removePlayer(p)}>✕</Btn>
           </div>
         ))}
