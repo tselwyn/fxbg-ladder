@@ -313,7 +313,12 @@ function ChallengeCard({ ch, meP, byId, act }) {
           <Btn small kind="ghost" onClick={() => act("cancel", ch)}>Cancel challenge</Btn>
         )}
         {ch.status === "accepted" && (
-          <Btn small onClick={() => act("report", ch)}>Report score</Btn>
+          <>
+            <Btn small onClick={() => act("report", ch)}>Report score</Btn>
+            {iAmChallenger && (
+              <Btn small kind="ghost" onClick={() => act("cancel", ch)}>Withdraw</Btn>
+            )}
+          </>
         )}
       </div>
     </Card>
@@ -567,6 +572,14 @@ function App() {
     catch (e) { say(e.message, true); }
   }
 
+  async function deleteMatch(ch) {
+    const w = byId[ch.winner_id]?.name || "?";
+    const l = byId[ch.winner_id === ch.challenger_id ? ch.opponent_id : ch.challenger_id]?.name || "?";
+    if (!confirm(`Delete this match (${w} def. ${l}${ch.score && ch.score !== "n/a" ? ` ${ch.score}` : ""})? It disappears from history and both players' W/L records and streaks recalculate automatically. Rank changes from this match are NOT undone — use the Rank button in Admin if a rank needs fixing.`)) return;
+    try { await rpc("admin_delete_match", { p_id: ch.id }); say("Match deleted — records updated"); loadAll(); }
+    catch (e) { say(e.message, true); }
+  }
+
   const tabs = [
     ["ladder", "Ladder"],
     ["matches", `Matches${myOpen.length ? ` (${myOpen.length})` : ""}`],
@@ -787,8 +800,12 @@ function App() {
                   </div>
                   <div style={{ fontFamily: MONO, fontSize: 12, color: C.mute }}>{ch.score}</div>
                   {meP?.is_admin && (
-                    <button onClick={() => editScore(ch)} aria-label="Edit score" title="Edit score"
-                      style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 13, padding: "0 2px", flexShrink: 0 }}>\u270e</button>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <button onClick={() => editScore(ch)} title="Edit score"
+                        style={{ fontFamily: MONO, fontSize: 10, fontWeight: 700, background: "transparent", color: C.mute, border: `1px solid ${C.faint}`, borderRadius: 3, padding: "3px 8px", cursor: "pointer" }}>EDIT</button>
+                      <button onClick={() => deleteMatch(ch)} title="Delete match"
+                        style={{ fontFamily: MONO, fontSize: 10, fontWeight: 700, background: "transparent", color: C.red, border: `1px solid rgba(232,96,76,0.5)`, borderRadius: 3, padding: "3px 8px", cursor: "pointer" }}>DEL</button>
+                    </div>
                   )}
                 </div>
               );
