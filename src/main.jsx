@@ -311,6 +311,26 @@ function App() {
   const [dropped, setDropped] = useState([]);
   const [settings, setSettings] = useState(null);
   const [tab, setTab] = useState("ladder");
+  const [showInstall, setShowInstall] = useState(false);
+  const [installEvt, setInstallEvt] = useState(null);
+
+  // "Add to Home Screen" nudge: shown only in a mobile browser tab, never
+  // when already installed, and stays dismissed once closed.
+  useEffect(() => {
+    const standalone =
+      window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone;
+    const dismissed = localStorage.getItem("installNudgeDismissed");
+    const mobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent);
+    if (!standalone && !dismissed && mobile) setShowInstall(true);
+    const onPrompt = (e) => { e.preventDefault(); setInstallEvt(e); };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", onPrompt);
+  }, []);
+
+  const dismissInstall = () => {
+    localStorage.setItem("installNudgeDismissed", "1");
+    setShowInstall(false);
+  };
   const [toast, setToast] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -518,6 +538,18 @@ function App() {
     } catch (e) { say(e.message, true); }
   }
 
+  async function editScore(ch) {
+    const a = byId[ch.challenger_id]?.name || "?", b = byId[ch.opponent_id]?.name || "?";
+    const cur = ch.winner_id === ch.challenger_id ? "1" : "2";
+    const w = prompt(`Winner?\n1 = ${a}\n2 = ${b}`, cur);
+    if (w !== "1" && w !== "2") return;
+    const score = prompt("Corrected score, winner first", ch.score === "n/a" ? "" : ch.score || "");
+    if (score === null) return;
+    const winnerId = w === "1" ? ch.challenger_id : ch.opponent_id;
+    try { await rpc("admin_edit_score", { p_id: ch.id, p_winner: winnerId, p_score: score }); say("Match updated"); loadAll(); }
+    catch (e) { say(e.message, true); }
+  }
+
   const tabs = [
     ["ladder", "Ladder"],
     ["matches", `Matches${myOpen.length ? ` (${myOpen.length})` : ""}`],
@@ -528,6 +560,28 @@ function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: C.court, color: C.line, fontFamily: "system-ui, -apple-system, sans-serif", paddingBottom: 70 }}>
+      {showInstall && (
+        <div style={{ background: C.clay, borderBottom: `1px solid ${C.faint}`, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
+          <span style={{ fontSize: 18 }}>\ud83c\udfbe</span>
+          <div style={{ flex: 1, color: C.line }}>
+            {installEvt ? (
+              <>Get the ladder as an app on your phone.</>
+            ) : /iphone|ipad|ipod/i.test(navigator.userAgent) ? (
+              <>Add the ladder to your Home Screen: tap <b>Share</b> \u2192 <b>Add to Home Screen</b>.</>
+            ) : (
+              <>Add the ladder to your Home Screen: browser menu \u22ee \u2192 <b>Add to Home Screen</b>.</>
+            )}
+          </div>
+          {installEvt && (
+            <button
+              onClick={async () => { installEvt.prompt(); await installEvt.userChoice; dismissInstall(); }}
+              style={{ background: C.ball, border: "none", color: C.court, borderRadius: 4, padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+            >Install</button>
+          )}
+          <button onClick={dismissInstall} aria-label="Dismiss"
+            style={{ background: "none", border: "none", color: C.mute, fontSize: 16, cursor: "pointer", flexShrink: 0, padding: 4 }}>\u2715</button>
+        </div>
+      )}
       {/* header */}
       <div style={{ padding: "22px 16px 14px", paddingTop: "calc(22px + env(safe-area-inset-top))", borderBottom: `1px solid ${C.faint}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
@@ -715,6 +769,10 @@ function App() {
                     <span style={{ color: C.line }}>{l.name}</span>
                   </div>
                   <div style={{ fontFamily: MONO, fontSize: 12, color: C.mute }}>{ch.score}</div>
+                  {meP?.is_admin && (
+                    <button onClick={() => editScore(ch)} aria-label="Edit score" title="Edit score"
+                      style={{ background: "none", border: "none", color: C.mute, cursor: "pointer", fontSize: 13, padding: "0 2px", flexShrink: 0 }}>\u270e</button>
+                  )}
                 </div>
               );
             })}
@@ -914,6 +972,28 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
     catch (e) { say(e.message, true); }
   }
 
+  const chalName = (id) =>
+    players.find((p) => p.id === id)?.name ||
+    dropped.find((p) => p.id === id)?.name || "Unknown";
+
+  async function adminScore(c) {
+    const a = chalName(c.challenger_id), b = chalName(c.opponent_id);
+    const w = prompt(`Who won?\n1 = ${a}\n2 = ${b}`);
+    if (w !== "1" && w !== "2") return;
+    const score = prompt("Score, winner first (e.g. 6-4, 6-2) — blank for n/a", "");
+    if (score === null) return;
+    const winnerId = w === "1" ? c.challenger_id : c.opponent_id;
+    if (!confirm(`Record: ${w === "1" ? a : b} def. ${w === "1" ? b : a}${score ? ` ${score}` : ""}? The ladder updates immediately.`)) return;
+    try { await rpc("admin_force_score", { p_id: c.id, p_winner: winnerId, p_score: score }); notify("reported", c.id); say("Score recorded — ladder updated"); reload(); }
+    catch (e) { say(e.message, true); }
+  }
+
+  async function adminWithdraw(c) {
+    if (!confirm(`Withdraw the ${chalName(c.challenger_id)} vs. ${chalName(c.opponent_id)} challenge?`)) return;
+    try { await rpc("cancel_challenge", { p_id: c.id }); notify("withdrawn", c.id); say("Challenge withdrawn"); reload(); }
+    catch (e) { say(e.message, true); }
+  }
+
   async function toggleAdmin(p) {
     if (meP && p.id === meP.id) {
       say("You can't remove your own admin — ask the other admin to do it", true);
@@ -966,9 +1046,7 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
       </Card>
 
       {(() => {
-        const nameOf = (id) =>
-          players.find((p) => p.id === id)?.name ||
-          dropped.find((p) => p.id === id)?.name || "Unknown";
+        const nameOf = chalName;
         const open = challenges.filter((c) => c.status === "pending" || c.status === "accepted");
         return (
           <>
@@ -989,6 +1067,8 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
                         : `accepted — play by ${fmtDate(c.play_by)} (${daysLeft(c.play_by)}d left)`}
                     </div>
                   </div>
+                  <Btn small kind="ghost" onClick={() => adminScore(c)}>Score</Btn>
+                  <Btn small kind="danger" onClick={() => adminWithdraw(c)}>✕</Btn>
                 </div>
               ))}
             </Card>
