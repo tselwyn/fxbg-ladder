@@ -156,6 +156,23 @@ function Field({ label, value, onChange, type = "text", placeholder }) {
   );
 }
 
+function SelectField({ label, value, onChange, options, placeholder }) {
+  return (
+    <label style={{ display: "block", marginBottom: 12 }}>
+      <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: C.mute, fontFamily: MONO, marginBottom: 6 }}>{label}</div>
+      <select
+        value={value} onChange={(e) => onChange(e.target.value)}
+        style={{ width: "100%", boxSizing: "border-box", background: C.clay, border: `1px solid ${C.faint}`, borderRadius: 4, color: C.line, padding: "12px 12px", fontSize: 16, fontFamily: "inherit" }}
+      >
+        <option value="">{placeholder || "Select…"}</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function Toast({ msg, isError }) {
   if (!msg) return null;
   return (
@@ -918,6 +935,10 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [rmWinner, setRmWinner] = useState("");
+  const [rmLoser, setRmLoser] = useState("");
+  const [rmScore, setRmScore] = useState("");
+  const [rmBump, setRmBump] = useState(true);
 
   useEffect(() => { if (settings) setS(settings); }, [settings]);
 
@@ -926,6 +947,26 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
       await rpc("admin_upsert_player", { p_name: name, p_email: email, p_phone: phone });
       say(`${name} added to the bottom of the ladder`);
       setName(""); setEmail(""); setPhone("");
+      reload();
+    } catch (e) { say(e.message, true); }
+  }
+
+  async function recordMatch() {
+    const w = players.find((p) => p.id === rmWinner);
+    const l = players.find((p) => p.id === rmLoser);
+    if (!w || !l) { say("Pick a winner and a loser", true); return; }
+    if (w.id === l.id) { say("Pick two different players", true); return; }
+    const bumpNote = rmBump
+      ? (w.rank > l.rank
+          ? ` ${w.name} takes over rank #${l.rank}.`
+          : " Ranks stay the same (winner already ranked higher).")
+      : " Ranks will NOT change.";
+    if (!confirm(`Record: ${w.name} def. ${l.name}${rmScore.trim() ? ` ${rmScore.trim()}` : ""}?${bumpNote} W/L records and streaks update immediately, and both players are emailed.`)) return;
+    try {
+      const id = await rpc("admin_record_match", { p_winner: w.id, p_loser: l.id, p_score: rmScore.trim() || "n/a", p_bump: rmBump });
+      if (id) notify("reported", id);
+      say("Match recorded — ladder updated");
+      setRmWinner(""); setRmLoser(""); setRmScore("");
       reload();
     } catch (e) { say(e.message, true); }
   }
@@ -1005,6 +1046,23 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
         <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="them@example.com" />
         <Field label="Phone" value={phone} onChange={setPhone} placeholder="540-555-0100" />
         <Btn onClick={addPlayer} disabled={!name.trim()}>Add player</Btn>
+      </Card>
+
+      <Eyebrow>Record a match</Eyebrow>
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: C.mute, marginBottom: 12 }}>
+          Enter a result for any two players — no challenge needed, range rules don't apply. Use this when a match happened outside the app.
+        </div>
+        <SelectField label="Winner" value={rmWinner} onChange={setRmWinner} placeholder="Select winner…"
+          options={[...players].sort((a, b) => a.rank - b.rank).map((p) => ({ value: p.id, label: `#${p.rank} ${p.name}` }))} />
+        <SelectField label="Loser" value={rmLoser} onChange={setRmLoser} placeholder="Select loser…"
+          options={[...players].sort((a, b) => a.rank - b.rank).filter((p) => p.id !== rmWinner).map((p) => ({ value: p.id, label: `#${p.rank} ${p.name}` }))} />
+        <Field label="Score (winner first)" value={rmScore} onChange={setRmScore} placeholder="6-4, 6-2 — blank for n/a" />
+        <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, cursor: "pointer" }}>
+          <input type="checkbox" checked={rmBump} onChange={(e) => setRmBump(e.target.checked)} />
+          <span style={{ fontSize: 13, color: C.line }}>Apply rank bump (winner takes loser's spot if ranked below them)</span>
+        </label>
+        <Btn onClick={recordMatch} disabled={!rmWinner || !rmLoser}>Record match</Btn>
       </Card>
 
       <Eyebrow>Rules</Eyebrow>
