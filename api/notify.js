@@ -46,6 +46,30 @@ export default async function handler(req, res) {
         <p>Accept by <b>${new Date(ch.accept_by).toLocaleDateString()}</b> or the challenge expires.</p>
         <p><a href="${acceptUrl}" style="background:#0F2E25;color:#D8F529;padding:12px 20px;border-radius:4px;text-decoration:none;font-weight:bold">Click here to accept the challenge</a></p>
         <p>Reply to this email to reach ${challenger.name} directly.</p>${btn}`;
+
+      // Also alert all admins (skip an admin who is one of the two players —
+      // they already hear about it). Best-effort; never blocks the player email.
+      try {
+        const admins = await sbFetch(`players?is_admin=eq.true&select=email,name`);
+        const involved = [challenger?.email, opponent?.email].filter(Boolean).map((e) => e.toLowerCase());
+        const adminTo = (admins || [])
+          .map((a) => a.email)
+          .filter((e) => e && !involved.includes(e.toLowerCase()));
+        if (adminTo.length) {
+          const fromAddrA = FROM.includes("<") ? FROM.match(/<([^>]+)>/)[1] : FROM;
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND}` },
+            body: JSON.stringify({
+              from: `FXBG Ladder Admin <${fromAddrA}>`,
+              to: adminTo,
+              subject: `[Admin] Challenge issued: ${challenger.name} → ${opponent.name}`,
+              html: `<p><b>${challenger.name}</b> (#${challenger.rank}) has challenged <b>${opponent.name}</b> (#${opponent.rank}).</p>
+                <p>Accept-by deadline: <b>${new Date(ch.accept_by).toLocaleDateString()}</b>.</p>${btn}`,
+            }),
+          });
+        }
+      } catch (_) { /* admin alert is best-effort */ }
     } else if (type === "accepted") {
       to = challenger?.email;
       fromName = `${opponent.name} · FXBG Ladder`;
