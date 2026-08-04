@@ -977,7 +977,6 @@ function AdminPanel({ players, dropped = [], settings, say, reload, meP }) {
               <div style={{ fontSize: 11, color: C.mute, fontFamily: MONO }}>{p.email || "no email — can't sign in"}</div>
             </div>
             <Btn small kind="ghost" onClick={() => setRank(p)}>Rank</Btn>
-            <Btn small kind="ghost" onClick={() => toggleAdmin(p)}>★</Btn>
             <Btn small kind="ghost" onClick={() => adminTempDrop(p)} title="Temp drop (vacation)">⏸</Btn>
             <Btn small kind="danger" onClick={() => removePlayer(p)}>✕</Btn>
           </div>
