@@ -918,23 +918,8 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => { if (settings) setS(settings); }, [settings]);
-
-  async function importRoster() {
-    setBusy(true);
-    try {
-      const res = await fetch(ROSTER_CSV_URL);
-      const rows = parseSheet(await res.text());
-      const withEmail = rows.filter((r) => r.email);
-      if (withEmail.length === 0) throw new Error("No rows with emails found in the sheet");
-      const added = await rpc("admin_import_players", { p_rows: withEmail });
-      say(`Imported ${added} new player${added === 1 ? "" : "s"} (${withEmail.length} rows checked)`);
-      reload();
-    } catch (e) { say(e.message, true); }
-    setBusy(false);
-  }
 
   async function addPlayer() {
     try {
@@ -1015,13 +1000,6 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
   return (
     <>
       <Eyebrow>Roster</Eyebrow>
-      <Card style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 13, color: C.mute, marginBottom: 12, lineHeight: 1.5 }}>
-          Pulls the same Google Sheet Rally Report uses. New players (rows with an email that aren't on the ladder yet) get added to the bottom. Existing players are untouched.
-        </div>
-        <Btn onClick={importRoster} disabled={busy}>{busy ? "Importing…" : "Import roster from sheet"}</Btn>
-      </Card>
-
       <Card style={{ marginBottom: 16 }}>
         <Field label="Name" value={name} onChange={setName} placeholder="First Last" />
         <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="them@example.com" />
