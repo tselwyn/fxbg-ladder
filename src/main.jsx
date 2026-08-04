@@ -479,12 +479,17 @@ function App() {
       // Only players on the ladder can sign in. Everyone else gets routed to Matt.
       const { data: match, error: lookupErr } = await supabase
         .from("players")
-        .select("id")
+        .select("id,active,dropped")
         .ilike("email", email)
         .limit(1);
       if (lookupErr) throw lookupErr;
       if (!match || match.length === 0) {
         say("That email isn't on the ladder. Contact Matt Selwyn to join: 540-498-0799", true);
+        return;
+      }
+      // Removed players can't sign in. Temp drops (vacation) still can.
+      if (!match[0].active && !match[0].dropped) {
+        say("This account is no longer on the ladder. Contact Matt Selwyn: 540-498-0799", true);
         return;
       }
       const { error } = await supabase.auth.signInWithOtp({
