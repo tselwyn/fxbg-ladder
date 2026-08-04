@@ -66,7 +66,8 @@ export default async function handler(req, res) {
       )
       .join("");
 
-    const dateStr = new Date().toLocaleDateString("en-US", {
+    const lastReported = completed[completed.length - 1]?.reported_at;
+    const dateStr = new Date(lastReported || Date.now()).toLocaleDateString("en-US", {
       timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric",
     });
 
@@ -74,14 +75,14 @@ export default async function handler(req, res) {
       <div style="font-family:Arial,sans-serif;color:#0F2E25;max-width:640px">
         <div style="background:#0F2E25;border-radius:8px 8px 0 0;padding:18px 22px;margin:0 0 18px">
           <div style="font-size:30px;line-height:1">\ud83c\udfbe</div>
-          <h2 style="margin:6px 0 0;color:#D8F529;font-family:Arial,sans-serif">Daily Results — FXBG Singles Tennis</h2>
+          <h2 style="margin:6px 0 0;color:#D8F529;font-family:Arial,sans-serif">Recent Match Results — FXBG Singles Tennis</h2>
         </div>
         <p style="margin:-8px 0 16px;color:#5a6b64">${dateStr}</p>
         <table cellpadding="0" cellspacing="0">${resultRows}</table>
         ${pendingRows ? `<h3 style="margin:24px 0 8px">Pending Challenges</h3>
         <table cellpadding="0" cellspacing="0">${pendingRows}</table>` : ""}
         <p style="margin:28px 0"><a href="${SITE}" style="background:#D8F529;color:#0F2E25;padding:12px 20px;border-radius:4px;text-decoration:none;font-weight:bold">Open the ladder</a></p>
-        <p style="font-size:12px;color:#8a948f">To be removed from these daily alerts, click <a href="${SITE}/api/unsubscribe?t=${token}">HERE</a>.</p>
+        <p style="font-size:12px;color:#8a948f">To be removed from these result emails, click <a href="${SITE}/api/unsubscribe?t=${token}">HERE</a>.</p>
       </div>`;
 
     const recipients = (players || []).filter(
@@ -90,7 +91,7 @@ export default async function handler(req, res) {
     if (recipients.length === 0) return res.status(200).json({ skipped: "no recipients" });
 
     const fromAddr = FROM.includes("<") ? FROM.match(/<([^>]+)>/)[1] : FROM;
-    const subject = `Daily Results — FXBG Singles Tennis (${completed.length} match${completed.length === 1 ? "" : "es"})`;
+    const subject = `Recent Match Results — FXBG Singles Tennis (${completed.length} match${completed.length === 1 ? "" : "es"})`;
 
     // Resend batch endpoint: up to 100 emails per call
     const batch = recipients.map((p) => ({
