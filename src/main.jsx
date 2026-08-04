@@ -757,7 +757,7 @@ function App() {
 
         {/* ADMIN */}
         {!loading && tab === "admin" && meP?.is_admin && (
-          <AdminPanel players={players} dropped={dropped} settings={settings} say={say} reload={loadAll} meP={meP} />
+          <AdminPanel players={players} dropped={dropped} challenges={challenges} settings={settings} say={say} reload={loadAll} meP={meP} />
         )}
       </div>
 
@@ -855,7 +855,7 @@ function App() {
 }
 
 // ---- ADMIN PANEL ----
-function AdminPanel({ players, dropped = [], settings, say, reload, meP }) {
+function AdminPanel({ players, dropped = [], challenges = [], settings, say, reload, meP }) {
   const [s, setS] = useState(settings || {});
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -964,6 +964,37 @@ function AdminPanel({ players, dropped = [], settings, say, reload, meP }) {
         <Field {...num("rematch_days")} />
         <Btn onClick={saveSettings}>Save settings</Btn>
       </Card>
+
+      {(() => {
+        const nameOf = (id) =>
+          players.find((p) => p.id === id)?.name ||
+          dropped.find((p) => p.id === id)?.name || "Unknown";
+        const open = challenges.filter((c) => c.status === "pending" || c.status === "accepted");
+        return (
+          <>
+            <Eyebrow>Open challenges ({open.length})</Eyebrow>
+            <Card style={{ padding: 0, marginBottom: 16 }}>
+              {open.length === 0 && (
+                <div style={{ padding: "12px", fontSize: 13, color: C.mute }}>No open challenges.</div>
+              )}
+              {open.map((c) => (
+                <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderBottom: `1px solid ${C.faint}` }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, color: C.line }}>
+                      {nameOf(c.challenger_id)} <span style={{ color: C.mute }}>vs.</span> {nameOf(c.opponent_id)}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.mute, fontFamily: MONO }}>
+                      {c.status === "pending"
+                        ? `pending — accept by ${fmtDate(c.accept_by)} (${daysLeft(c.accept_by)}d left)`
+                        : `accepted — play by ${fmtDate(c.play_by)} (${daysLeft(c.play_by)}d left)`}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </Card>
+          </>
+        );
+      })()}
 
       <Eyebrow>Players ({players.length})</Eyebrow>
       <Card style={{ padding: 0, marginBottom: 16 }}>
