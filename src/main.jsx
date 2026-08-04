@@ -1119,6 +1119,9 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
                         ? `pending — accept by ${fmtDate(c.accept_by)} (${daysLeft(c.accept_by)}d left)`
                         : `accepted — play by ${fmtDate(c.play_by)} (${daysLeft(c.play_by)}d left)`}
                     </div>
+                    <div style={{ fontSize: 11, color: C.mute, fontFamily: MONO }}>
+                      issued {fmtDate(c.created_at)} — open {Math.max(0, Math.floor((Date.now() - new Date(c.created_at)) / 86400000))}d
+                    </div>
                   </div>
                   <Btn small kind="ghost" onClick={() => adminScore(c)}>Score</Btn>
                   <Btn small kind="danger" onClick={() => adminWithdraw(c)}>✕</Btn>
