@@ -83,6 +83,33 @@ export default async function handler(req, res) {
           ${opponent.email ? `EMAIL: <a href="mailto:${opponent.email}">${opponent.email}</a>` : ""}
         </p>
         <p>You can also just reply to this email — it goes straight to ${opponent.name}.</p>${btn}`;
+    } else if (type === "wildcard") {
+      // Admin-arranged match. One email, both players, contact info for each
+      // other, no accept step. Sent to the two players who agreed to it.
+      const lo = challenger; // lower-ranked player is stored as challenger
+      const hi = opponent;
+      const daysToPlay = Math.max(1, Math.ceil((new Date(ch.play_by) - Date.now()) / 86400000));
+      to = [challenger?.email, opponent?.email].filter(Boolean);
+      fromName = `FXBG Ladder`;
+      subject = `Wildcard match pending: ${lo.name} vs. ${hi.name}`;
+      const contact = (p) => `<p style="font-family:monospace;line-height:1.8">
+          <b>${p.name}</b> (#${p.rank})<br/>
+          ${p.phone ? `PHONE: <a href="tel:${p.phone}">${p.phone}</a><br/>` : ""}
+          ${p.email ? `EMAIL: <a href="mailto:${p.email}">${p.email}</a>` : ""}
+        </p>`;
+      html = `<p>A <b>wildcard match</b> has been set up between <b>${lo.name}</b> (#${lo.rank})
+          and <b>${hi.name}</b> (#${hi.rank}).</p>
+        <p>Wildcard matches are arranged by an admin and are not limited by the normal
+          challenge range, so this one counts even though you are more than the usual
+          number of spots apart. It does not use up either of your challenge slots.</p>
+        <p>Use the contact info below to sort out the details. You have
+          <b>${daysToPlay} day${daysToPlay === 1 ? "" : "s"}</b>
+          (by <b>${new Date(ch.play_by).toLocaleDateString()}</b>) to play, and either
+          player can report the score in the app.</p>
+        ${contact(lo)}
+        ${contact(hi)}
+        <p>If <b>${lo.name}</b> wins, they take over <b>#${hi.rank}</b> on the ladder,
+          same as any other match.</p>${btn}`;
     } else if (type === "reported") {
       const loserId = ch.winner_id === ch.challenger_id ? ch.opponent_id : ch.challenger_id;
       const [loser] = await sbFetch(`players?id=eq.${loserId}&select=*`);
