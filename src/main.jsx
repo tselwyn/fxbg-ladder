@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import {
   fetchLegacyLogs, fetchAllPlayerNames, buildLiveLogs, mergeLogs,
-  oddsForPair, PlayerReportView, StatsTab, OddsBar,
+  PlayerReportView, StatsTab, ChallengeOddsBlock, OddsExplainer,
 } from "./stats.jsx";
 
 // ================================================================
@@ -277,7 +277,7 @@ function LadderRow({ p, meP, canChallenge, blockReason, openCh, onTap, act }) {
 }
 
 // ---- CHALLENGE CARD (Matches tab) ----
-function ChallengeCard({ ch, meP, byId, act, odds }) {
+function ChallengeCard({ ch, meP, byId, act, logsByName, nPlayers }) {
   const opp = byId[ch.challenger_id === meP?.id ? ch.opponent_id : ch.challenger_id];
   const iAmChallenger = meP && ch.challenger_id === meP.id;
   const iAmOpponent = meP && ch.opponent_id === meP.id;
@@ -295,11 +295,10 @@ function ChallengeCard({ ch, meP, byId, act, odds }) {
         <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute }}>#{opp.rank}</div>
       </div>
       <div style={{ fontSize: 12, color: C.mute, marginTop: 4 }}>{label}</div>
-      {["pending", "accepted"].includes(ch.status) && odds && (
-        <OddsBar
-          odds={odds}
-          leftName={byId[ch.challenger_id]?.name?.split(" ")[0]}
-          rightName={byId[ch.opponent_id]?.name?.split(" ")[0]}
+      {["pending", "accepted"].includes(ch.status) && (
+        <ChallengeOddsBlock
+          pA={byId[ch.challenger_id]} pB={byId[ch.opponent_id]}
+          logsByName={logsByName} ladderSize={nPlayers}
         />
       )}
       <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute, marginTop: 4 }}>
@@ -415,13 +414,6 @@ function App() {
     return mergeLogs(buildLiveLogs(challenges, nameById, rankByName), legacyLogs);
   }, [players, dropped, challenges, legacyLogs, allNames]);
 
-  // Model odds for a challenge row (challenger perspective first).
-  const oddsFor = (ch) => {
-    if (!logsByName) return null;
-    const a = byId[ch.challenger_id], b = byId[ch.opponent_id];
-    if (!a || !b) return null;
-    return oddsForPair(a, b, logsByName, players.length);
-  };
 
   async function loadAll() {
     try { await supabase.rpc("tick"); } catch {}
@@ -665,14 +657,6 @@ function App() {
             >
               {refreshing ? "…" : "↻"}
             </button>
-            <a
-              href="https://rally-report-six.vercel.app"
-              target="_blank"
-              rel="noreferrer"
-              style={{ display: "inline-block", border: `1px solid ${C.ball}`, color: C.ball, borderRadius: 4, padding: "6px 10px", fontSize: 11, fontFamily: MONO, letterSpacing: 1, textDecoration: "none", fontWeight: 700 }}
-            >
-              RALLY REPORT ↗
-            </a>
           </div>
           {session ? (
             <button onClick={confirmSignOut} style={{ background: "none", border: `1px solid ${C.faint}`, color: C.mute, borderRadius: 4, padding: "6px 10px", fontSize: 11, fontFamily: MONO, cursor: "pointer" }}>
@@ -784,19 +768,6 @@ function App() {
                 NEED A BREAK? TEMP DROP OFF THE LADDER
               </button>
             )}
-            <a
-              href="https://rally-report-six.vercel.app"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "block", textAlign: "center", marginTop: 12,
-                padding: "12px 14px", border: `1px solid ${C.faint}`, borderRadius: 8,
-                fontFamily: MONO, fontSize: 12, letterSpacing: 1,
-                color: C.ball, textDecoration: "none",
-              }}
-            >
-              MATCH LOGS &amp; SCOUTING REPORTS → RALLY REPORT
-            </a>
           </>
         )}
 
@@ -809,7 +780,7 @@ function App() {
               <Card><div style={{ color: C.mute, fontSize: 14 }}>Nothing open. Tap a player on the ladder to challenge them.</div></Card>
             )}
             {myOpen.map((ch) => (
-              <ChallengeCard key={ch.id} ch={ch} meP={meP} byId={byId} act={act} odds={oddsFor(ch)} />
+              <ChallengeCard key={ch.id} ch={ch} meP={meP} byId={byId} act={act} logsByName={logsByName} nPlayers={players.length} />
             ))}
             {session && open.filter((c) => !myOpen.includes(c)).length > 0 && (
               <>
@@ -823,12 +794,12 @@ function App() {
                         #{a.rank} {a.name} → #{b.rank} {b.name} · {ch.status}
                       </div>
                       {["pending", "accepted"].includes(ch.status) && (
-                        <OddsBar odds={oddsFor(ch)} compact
-                          leftName={a.name.split(" ")[0]} rightName={b.name.split(" ")[0]} />
+                        <ChallengeOddsBlock pA={a} pB={b} logsByName={logsByName} ladderSize={players.length} compact />
                       )}
                     </div>
                   );
                 })}
+                <OddsExplainer />
               </>
             )}
           </>
