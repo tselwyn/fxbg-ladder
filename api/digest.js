@@ -21,6 +21,66 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "unauthorized" });
   }
 
+  // ---- WEEKLY BACKUP (Sundays) ----
+  // Emails full CSV exports of players, challenges, and legacy_matches to
+  // BACKUP_EMAIL (Vercel env var; comma-separate for multiple recipients).
+  // Supabase free tier has no automatic backups — this is the offsite copy.
+  // Deliberately runs BEFORE the "no matches today" early-return below, so
+  // quiet weeks still get backed up. Best-effort: never blocks the digest.
+  const BACKUP_TO = (process.env.BACKUP_EMAIL || "").split(",").map((e) => e.trim()).filter(Boolean);
+  if (BACKUP_TO.length && new Date().getUTCDay() === 0) {
+    try {
+      // Paged read — Supabase caps responses at 1000 rows, and legacy_matches
+      // alone is over that. A naive fetch would silently truncate the backup.
+      const allRows = async (table) => {
+        const out = [];
+        const page = 1000;
+        for (let from = 0; ; from += page) {
+          const r = await fetch(
+            `${SB}/rest/v1/${table}?select=*&order=created_at.asc,id.asc`,
+            { headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, Range: `${from}-${from + page - 1}` } }
+          );
+          if (!r.ok) throw new Error(`${table} ${r.status}`);
+          const rows = await r.json();
+          out.push(...rows);
+          if (rows.length < page) return out;
+        }
+      };
+      const toCsv = (rows) => {
+        if (!rows.length) return "";
+        const cols = Object.keys(rows[0]);
+        const esc = (v) => {
+          const s = v === null || v === undefined ? "" : String(v);
+          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        return [cols.join(","), ...rows.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\n");
+      };
+      const [pl, chl, leg] = await Promise.all([
+        allRows("players"), allRows("challenges"), allRows("legacy_matches"),
+      ]);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const b64 = (t) => Buffer.from(t, "utf8").toString("base64");
+      const fromAddrB = FROM.includes("<") ? FROM.match(/<([^>]+)>/)[1] : FROM;
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND}` },
+        body: JSON.stringify({
+          from: `FXBG Ladder Backup <${fromAddrB}>`,
+          to: BACKUP_TO,
+          subject: `[Backup] Ladder data ${stamp} — ${pl.length} players, ${chl.length} matches, ${leg.length} legacy`,
+          html: `<p>Weekly database backup attached. Nothing to do — this email existing is the backup.</p>
+            <p style="font-family:monospace">players: ${pl.length}<br/>challenges: ${chl.length}<br/>legacy_matches: ${leg.length}</p>
+            <p>Restore after a total loss: new Supabase project &rarr; run schema.sql from the repo &rarr; Table Editor &rarr; import these CSVs (players first, then challenges, then legacy_matches).</p>`,
+          attachments: [
+            { filename: `players-${stamp}.csv`, content: b64(toCsv(pl)) },
+            { filename: `challenges-${stamp}.csv`, content: b64(toCsv(chl)) },
+            { filename: `legacy_matches-${stamp}.csv`, content: b64(toCsv(leg)) },
+          ],
+        }),
+      });
+    } catch (_) { /* backup is best-effort; the digest below always runs */ }
+  }
+
   const sbFetch = async (path) => {
     const r = await fetch(`${SB}/rest/v1/${path}`, {
       headers: { apikey: KEY, Authorization: `Bearer ${KEY}` },
