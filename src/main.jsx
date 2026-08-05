@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
+import {
+  fetchLegacyLogs, fetchAllPlayerNames, buildLiveLogs, mergeLogs,
+  oddsForPair, PlayerReportView, StatsTab, OddsBar,
+} from "./stats.jsx";
 
 // ================================================================
 // FXBG SINGLES LADDER — the ladder itself (system of record)
@@ -216,7 +220,7 @@ function LadderRow({ p, meP, canChallenge, blockReason, openCh, onTap, act }) {
       onClick={onTap}
       style={{
         display: "flex", alignItems: "center", gap: 10, padding: "12px 12px",
-        borderBottom: `1px solid ${C.faint}`, cursor: canChallenge ? "pointer" : "default",
+        borderBottom: `1px solid ${C.faint}`, cursor: "pointer",
         background: isMe ? "rgba(216,245,41,0.07)" : "transparent",
         borderLeft: isMe ? `3px solid ${C.ball}` : "3px solid transparent",
       }}
@@ -273,7 +277,7 @@ function LadderRow({ p, meP, canChallenge, blockReason, openCh, onTap, act }) {
 }
 
 // ---- CHALLENGE CARD (Matches tab) ----
-function ChallengeCard({ ch, meP, byId, act }) {
+function ChallengeCard({ ch, meP, byId, act, odds }) {
   const opp = byId[ch.challenger_id === meP?.id ? ch.opponent_id : ch.challenger_id];
   const iAmChallenger = meP && ch.challenger_id === meP.id;
   const iAmOpponent = meP && ch.opponent_id === meP.id;
@@ -291,6 +295,13 @@ function ChallengeCard({ ch, meP, byId, act }) {
         <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute }}>#{opp.rank}</div>
       </div>
       <div style={{ fontSize: 12, color: C.mute, marginTop: 4 }}>{label}</div>
+      {["pending", "accepted"].includes(ch.status) && odds && (
+        <OddsBar
+          odds={odds}
+          leftName={byId[ch.challenger_id]?.name?.split(" ")[0]}
+          rightName={byId[ch.opponent_id]?.name?.split(" ")[0]}
+        />
+      )}
       <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute, marginTop: 4 }}>
         {ch.status === "pending" && <>accept within {daysLeft(ch.accept_by)}d ({fmtDate(ch.accept_by)})</>}
         {ch.status === "accepted" && <>play by {fmtDate(ch.play_by)} ({daysLeft(ch.play_by)}d left)</>}
@@ -333,6 +344,9 @@ function App() {
   const [dropped, setDropped] = useState([]);
   const [settings, setSettings] = useState(null);
   const [tab, setTab] = useState("ladder");
+  const [legacyLogs, setLegacyLogs] = useState(null);   // frozen TennisRungs archive
+  const [allNames, setAllNames] = useState(null);       // id -> name for every player row ever
+  const [reportPlayer, setReportPlayer] = useState(null); // player whose report is open
   const [showInstall, setShowInstall] = useState(false);
   const [installEvt, setInstallEvt] = useState(null);
 
@@ -393,6 +407,22 @@ function App() {
 
   const byId = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p])), [players]);
 
+  // Full career logs (live challenges + TennisRungs archive), per player name.
+  const logsByName = useMemo(() => {
+    if (!legacyLogs) return null; // still loading the archive
+    const nameById = allNames || new Map([...players, ...dropped].map((p) => [p.id, p.name]));
+    const rankByName = new Map(players.map((p) => [p.name, p.rank]));
+    return mergeLogs(buildLiveLogs(challenges, nameById, rankByName), legacyLogs);
+  }, [players, dropped, challenges, legacyLogs, allNames]);
+
+  // Model odds for a challenge row (challenger perspective first).
+  const oddsFor = (ch) => {
+    if (!logsByName) return null;
+    const a = byId[ch.challenger_id], b = byId[ch.opponent_id];
+    if (!a || !b) return null;
+    return oddsForPair(a, b, logsByName, players.length);
+  };
+
   async function loadAll() {
     try { await supabase.rpc("tick"); } catch {}
     const [p, d, c, s] = await Promise.all([
@@ -412,6 +442,8 @@ function App() {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     loadAll();
+    fetchLegacyLogs(supabase).then(setLegacyLogs).catch(() => setLegacyLogs(new Map()));
+    fetchAllPlayerNames(supabase).then(setAllNames).catch(() => setAllNames(null));
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -588,7 +620,7 @@ function App() {
   const tabs = [
     ["ladder", "Ladder"],
     ["matches", `Matches${myOpen.length ? ` (${myOpen.length})` : ""}`],
-    ["history", "History"],
+    ["stats", "Stats"],
     ["rules", "Rules"],
     ...(meP?.is_admin ? [["admin", "Admin"]] : []),
   ];
@@ -597,14 +629,14 @@ function App() {
     <div style={{ minHeight: "100vh", background: C.court, color: C.line, fontFamily: "system-ui, -apple-system, sans-serif", paddingBottom: 70 }}>
       {showInstall && (
         <div style={{ background: C.clay, borderBottom: `1px solid ${C.faint}`, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
-          <span style={{ fontSize: 18 }}>\ud83c\udfbe</span>
+          <span style={{ fontSize: 18 }}>🎾</span>
           <div style={{ flex: 1, color: C.line }}>
             {installEvt ? (
               <>Get the ladder as an app on your phone.</>
             ) : /iphone|ipad|ipod/i.test(navigator.userAgent) ? (
-              <>Add the ladder to your Home Screen: tap <b>Share</b> \u2192 <b>Add to Home Screen</b>.</>
+              <>Add the ladder to your Home Screen: tap <b>Share</b> → <b>Add to Home Screen</b>.</>
             ) : (
-              <>Add the ladder to your Home Screen: browser menu \u22ee \u2192 <b>Add to Home Screen</b>.</>
+              <>Add the ladder to your Home Screen: browser menu ⋮ → <b>Add to Home Screen</b>.</>
             )}
           </div>
           {installEvt && (
@@ -614,7 +646,7 @@ function App() {
             >Install</button>
           )}
           <button onClick={dismissInstall} aria-label="Dismiss"
-            style={{ background: "none", border: "none", color: C.mute, fontSize: 16, cursor: "pointer", flexShrink: 0, padding: 4 }}>\u2715</button>
+            style={{ background: "none", border: "none", color: C.mute, fontSize: 16, cursor: "pointer", flexShrink: 0, padding: 4 }}>✕</button>
         </div>
       )}
       {/* header */}
@@ -655,8 +687,18 @@ function App() {
       <div style={{ maxWidth: 560, margin: "0 auto", padding: "14px 12px" }}>
         {loading && <div style={{ color: C.mute, fontFamily: MONO, padding: 30, textAlign: "center" }}>loading…</div>}
 
+        {/* PLAYER REPORT (opens over any tab) */}
+        {!loading && reportPlayer && (
+          <PlayerReportView
+            player={reportPlayer}
+            logsByName={logsByName}
+            onBack={() => setReportPlayer(null)}
+            onChallenge={canChallenge(reportPlayer) ? () => { const p = reportPlayer; setReportPlayer(null); setTarget(p); } : null}
+          />
+        )}
+
         {/* LADDER */}
-        {!loading && tab === "ladder" && (
+        {!loading && !reportPlayer && tab === "ladder" && (
           <>
             {meP && meP.dropped && (
               <Card style={{ marginBottom: 10, border: `1px solid ${C.ball}` }}>
@@ -709,7 +751,7 @@ function App() {
                   canChallenge={canChallenge(p)}
                   blockReason={blockReason(p)}
                   openCh={openWith(p.id)}
-                  onTap={() => canChallenge(p) && setTarget(p)}
+                  onTap={() => setReportPlayer(p)}
                   act={act}
                 />
               ))}
@@ -759,7 +801,7 @@ function App() {
         )}
 
         {/* MATCHES */}
-        {!loading && tab === "matches" && (
+        {!loading && !reportPlayer && tab === "matches" && (
           <>
             <Eyebrow>Your open matches</Eyebrow>
             {!session && <Card><div style={{ color: C.mute, fontSize: 14 }}>Sign in to see your matches.</div></Card>}
@@ -767,7 +809,7 @@ function App() {
               <Card><div style={{ color: C.mute, fontSize: 14 }}>Nothing open. Tap a player on the ladder to challenge them.</div></Card>
             )}
             {myOpen.map((ch) => (
-              <ChallengeCard key={ch.id} ch={ch} meP={meP} byId={byId} act={act} />
+              <ChallengeCard key={ch.id} ch={ch} meP={meP} byId={byId} act={act} odds={oddsFor(ch)} />
             ))}
             {session && open.filter((c) => !myOpen.includes(c)).length > 0 && (
               <>
@@ -776,8 +818,14 @@ function App() {
                   const a = byId[ch.challenger_id], b = byId[ch.opponent_id];
                   if (!a || !b) return null;
                   return (
-                    <div key={ch.id} style={{ fontSize: 13, color: C.mute, padding: "6px 4px", fontFamily: MONO }}>
-                      #{a.rank} {a.name} → #{b.rank} {b.name} · {ch.status}
+                    <div key={ch.id} style={{ padding: "8px 4px", borderBottom: `1px solid ${C.faint}` }}>
+                      <div style={{ fontSize: 13, color: C.mute, fontFamily: MONO }}>
+                        #{a.rank} {a.name} → #{b.rank} {b.name} · {ch.status}
+                      </div>
+                      {["pending", "accepted"].includes(ch.status) && (
+                        <OddsBar odds={oddsFor(ch)} compact
+                          leftName={a.name.split(" ")[0]} rightName={b.name.split(" ")[0]} />
+                      )}
                     </div>
                   );
                 })}
@@ -786,10 +834,11 @@ function App() {
           </>
         )}
 
-        {/* HISTORY */}
-        {!loading && tab === "history" && (
+        {/* STATS (leaderboards, player reports, league match history) */}
+        {!loading && !reportPlayer && tab === "stats" && (
           <>
-            <Eyebrow>Match history</Eyebrow>
+            <StatsTab players={players} logsByName={logsByName} onPlayer={setReportPlayer} />
+            <Eyebrow>League match history</Eyebrow>
             {completed.length === 0 && <Card><div style={{ color: C.mute, fontSize: 14 }}>No completed matches yet.</div></Card>}
             {completed.map((ch) => {
               const w = byId[ch.winner_id];
@@ -819,7 +868,7 @@ function App() {
         )}
 
         {/* RULES */}
-        {!loading && tab === "rules" && settings && (
+        {!loading && !reportPlayer && tab === "rules" && settings && (
           <>
             <Eyebrow>Ladder rules</Eyebrow>
             <Card>
@@ -853,7 +902,7 @@ function App() {
         )}
 
         {/* ADMIN */}
-        {!loading && tab === "admin" && meP?.is_admin && (
+        {!loading && !reportPlayer && tab === "admin" && meP?.is_admin && (
           <AdminPanel players={players} dropped={dropped} challenges={challenges} settings={settings} say={say} reload={loadAll} meP={meP} />
         )}
       </div>
@@ -861,7 +910,7 @@ function App() {
       {/* bottom tab bar */}
       <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.clay, borderTop: `1px solid ${C.faint}`, display: "flex", zIndex: 40, paddingBottom: "env(safe-area-inset-bottom)" }}>
         {tabs.map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)}
+          <button key={key} onClick={() => { setReportPlayer(null); setTab(key); }}
             style={{ flex: 1, background: "none", border: "none", padding: "14px 4px", cursor: "pointer", fontFamily: MONO, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", color: tab === key ? C.ball : C.mute, fontWeight: tab === key ? 700 : 400, borderTop: tab === key ? `2px solid ${C.ball}` : "2px solid transparent" }}>
             {label}
           </button>
