@@ -161,7 +161,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Unknown type" });
     }
 
-    if (!to) return res.status(200).json({ skipped: "recipient has no email" });
+    if (!to || (Array.isArray(to) && to.length === 0)) {
+      return res.status(200).json({ skipped: "recipient has no email" });
+    }
 
     // Keep the configured sender ADDRESS (required by Resend) but show the
     // other player's NAME, TennisRungs-style: "Andy Wolfenbarger · FXBG Ladder"
