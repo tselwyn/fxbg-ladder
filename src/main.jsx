@@ -282,9 +282,10 @@ function ChallengeCard({ ch, meP, byId, act, logsByName, nPlayers }) {
   const iAmChallenger = meP && ch.challenger_id === meP.id;
   const iAmOpponent = meP && ch.opponent_id === meP.id;
   if (!opp) return null;
+  const wc = !!ch.is_wildcard;
   const label =
     ch.status === "pending" ? (iAmChallenger ? "Waiting on them to accept" : "They challenged you") :
-    ch.status === "accepted" ? "Match on — play + report" :
+    ch.status === "accepted" ? (wc ? "Wildcard match on — play + report" : "Match on — play + report") :
     ch.status === "reported" ? "Score recorded" : ch.status;
   return (
     <Card style={{ marginBottom: 10 }}>
@@ -292,7 +293,14 @@ function ChallengeCard({ ch, meP, byId, act, logsByName, nPlayers }) {
         <div style={{ color: C.line, fontWeight: 700, fontSize: 15 }}>
           {iAmChallenger ? "You" : opp.name} <span style={{ color: C.mute, fontWeight: 400 }}>vs</span> {iAmChallenger ? opp.name : "you"}
         </div>
-        <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute }}>#{opp.rank}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {wc && (
+            <div style={{ fontFamily: MONO, fontSize: 10, color: C.ball, border: `1px solid rgba(216,245,41,0.4)`, borderRadius: 3, padding: "2px 7px" }}>
+              WILDCARD
+            </div>
+          )}
+          <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute }}>#{opp.rank}</div>
+        </div>
       </div>
       <div style={{ fontSize: 12, color: C.mute, marginTop: 4 }}>{label}</div>
       {["pending", "accepted"].includes(ch.status) && (
@@ -306,6 +314,11 @@ function ChallengeCard({ ch, meP, byId, act, logsByName, nPlayers }) {
         {ch.status === "accepted" && <>play by {fmtDate(ch.play_by)} ({daysLeft(ch.play_by)}d left)</>}
         {ch.status === "reported" && <>score: {ch.score}</>}
       </div>
+      {wc && ch.status === "accepted" && (
+        <div style={{ fontSize: 11, color: C.mute, marginTop: 4 }}>
+          Set up by an admin — outside the normal challenge range. Winner takes the loser's spot.
+        </div>
+      )}
       {ch.status === "accepted" && (opp.email || opp.phone) && (
         <div style={{ fontSize: 12, color: C.line, marginTop: 8, fontFamily: MONO }}>
           {opp.phone && <div>📞 <a href={`tel:${opp.phone}`} style={{ color: C.ball }}>{opp.phone}</a></div>}
@@ -442,19 +455,24 @@ function App() {
   const open = challenges.filter((c) => ["pending", "accepted", "reported"].includes(c.status));
   const myOpen = meP ? open.filter((c) => c.challenger_id === meP.id || c.opponent_id === meP.id) : [];
   const completed = challenges.filter((c) => c.status === "completed");
+  // Wildcard matches are admin-arranged and sit outside every limit:
+  // they never count toward a player's active challenges, never block an
+  // opponent's incoming slot, and never trip the rematch cooldown.
+  const notWc = (c) => !c.is_wildcard;
   const openWith = (pid) => {
     if (!meP) return null;
-    const ch = open.find((c) =>
+    const ch = open.filter(notWc).find((c) =>
       (c.challenger_id === meP.id && c.opponent_id === pid) ||
       (c.challenger_id === pid && c.opponent_id === meP.id));
     return ch ? { ch, iAmOpponent: ch.opponent_id === meP.id } : null;
   };
-  const myActiveCount = meP ? open.filter((c) => c.challenger_id === meP.id).length : 0;
+  const myActiveCount = meP ? open.filter((c) => c.challenger_id === meP.id && notWc(c)).length : 0;
 
   const rematchBlocked = (pid) => {
     if (!meP || !settings || !(settings.rematch_days > 0)) return false;
     const cutoff = Date.now() - settings.rematch_days * 86400000;
     return completed.some((c) =>
+      notWc(c) &&
       ((c.challenger_id === meP.id && c.opponent_id === pid) ||
        (c.challenger_id === pid && c.opponent_id === meP.id)) &&
       c.reported_at && new Date(c.reported_at).getTime() > cutoff);
@@ -462,7 +480,7 @@ function App() {
 
   // A player can only be challenged by so many people at once (default 1)
   const incomingBusy = (pid) =>
-    challenges.filter((c) => ["pending", "accepted"].includes(c.status) &&
+    challenges.filter((c) => ["pending", "accepted"].includes(c.status) && notWc(c) &&
       c.opponent_id === pid && c.challenger_id !== (meP && meP.id)).length >=
     ((settings && settings.max_incoming_challenges) ?? 1);
 
@@ -981,6 +999,9 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
   const [rmLoser, setRmLoser] = useState("");
   const [rmScore, setRmScore] = useState("");
   const [rmBump, setRmBump] = useState(true);
+  const [wcA, setWcA] = useState("");
+  const [wcB, setWcB] = useState("");
+  const [wcDays, setWcDays] = useState(String(settings?.play_days ?? 10));
 
   useEffect(() => { if (settings) setS(settings); }, [settings]);
 
@@ -1009,6 +1030,24 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
       if (id) notify("reported", id);
       say("Match recorded — ladder updated");
       setRmWinner(""); setRmLoser(""); setRmScore("");
+      reload();
+    } catch (e) { say(e.message, true); }
+  }
+
+  async function createWildcard() {
+    const a = players.find((p) => p.id === wcA);
+    const b = players.find((p) => p.id === wcB);
+    if (!a || !b) { say("Pick both players", true); return; }
+    if (a.id === b.id) { say("Pick two different players", true); return; }
+    const days = Math.max(1, parseInt(wcDays, 10) || (settings?.play_days ?? 10));
+    const lo = a.rank > b.rank ? a : b;   // lower-ranked = challenger
+    const hi = a.rank > b.rank ? b : a;
+    if (!confirm(`Set up a wildcard match: ${lo.name} (#${lo.rank}) vs. ${hi.name} (#${hi.rank})?\n\nBoth players are emailed with each other's contact info and have ${days} day${days === 1 ? "" : "s"} to play. Either one can report the score. If ${lo.name} wins, they take #${hi.rank}.\n\nThis does not count against either player's challenge limits.`)) return;
+    try {
+      const id = await rpc("admin_create_wildcard", { p_a: a.id, p_b: b.id, p_play_days: days });
+      if (id) notify("wildcard", id);
+      say("Wildcard match created — both players emailed");
+      setWcA(""); setWcB("");
       reload();
     } catch (e) { say(e.message, true); }
   }
@@ -1107,6 +1146,22 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
         <Btn onClick={recordMatch} disabled={!rmWinner || !rmLoser}>Record match</Btn>
       </Card>
 
+      <Eyebrow>Set up wildcard match</Eyebrow>
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: C.mute, marginBottom: 12 }}>
+          Arrange a match between any two players, any distance apart. Both are emailed
+          right away with each other's contact info — no accept step. Either player reports
+          the score, and the winner takes the loser's spot. It does not count against
+          anyone's challenge limits, so both players can still challenge as normal.
+        </div>
+        <SelectField label="Player 1" value={wcA} onChange={setWcA} placeholder="Select player…"
+          options={[...players].sort((a, b) => a.rank - b.rank).filter((p) => p.id !== wcB).map((p) => ({ value: p.id, label: `#${p.rank} ${p.name}` }))} />
+        <SelectField label="Player 2" value={wcB} onChange={setWcB} placeholder="Select player…"
+          options={[...players].sort((a, b) => a.rank - b.rank).filter((p) => p.id !== wcA).map((p) => ({ value: p.id, label: `#${p.rank} ${p.name}` }))} />
+        <Field label="Days to play" type="number" value={wcDays} onChange={setWcDays} placeholder={String(settings?.play_days ?? 10)} />
+        <Btn onClick={createWildcard} disabled={!wcA || !wcB}>Create wildcard match</Btn>
+      </Card>
+
       <Eyebrow>Rules</Eyebrow>
       <Card style={{ marginBottom: 16 }}>
         <Field {...num("challenge_range")} />
@@ -1136,13 +1191,18 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
               {open.map((c) => (
                 <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderBottom: `1px solid ${C.faint}` }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, color: C.line }}>
-                      {nameOf(c.challenger_id)} <span style={{ color: C.mute }}>vs.</span> {nameOf(c.opponent_id)}
+                    <div style={{ fontSize: 14, color: C.line, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span>{nameOf(c.challenger_id)} <span style={{ color: C.mute }}>vs.</span> {nameOf(c.opponent_id)}</span>
+                      {c.is_wildcard && (
+                        <span style={{ fontFamily: MONO, fontSize: 10, color: C.ball, border: `1px solid rgba(216,245,41,0.4)`, borderRadius: 3, padding: "2px 6px" }}>
+                          WILDCARD
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 11, color: C.mute, fontFamily: MONO }}>
                       {c.status === "pending"
                         ? `pending — accept by ${fmtDate(c.accept_by)} (${daysLeft(c.accept_by)}d left)`
-                        : `accepted — play by ${fmtDate(c.play_by)} (${daysLeft(c.play_by)}d left)`}
+                        : `${c.is_wildcard ? "wildcard" : "accepted"} — play by ${fmtDate(c.play_by)} (${daysLeft(c.play_by)}d left)`}
                     </div>
                     <div style={{ fontSize: 11, color: C.mute, fontFamily: MONO }}>
                       issued {fmtDate(c.created_at)} — open {Math.max(0, Math.floor((Date.now() - new Date(c.created_at)) / 86400000))}d
