@@ -31,7 +31,7 @@ export default async function handler(req, res) {
     if (!ch) return res.status(404).json({ error: "Challenge not found" });
     const [challenger] = await sbFetch(`players?id=eq.${ch.challenger_id}&select=*`);
     const [opponent] = await sbFetch(`players?id=eq.${ch.opponent_id}&select=*`);
-    const site = `https://${req.headers.host}`;
+    const site = process.env.SITE_URL || "https://rallyladders.com";
 
     let to, subject, html, fromName, replyTo;
     const btn = `<p><a href="${site}" style="background:#D8F529;color:#0F2E25;padding:12px 20px;border-radius:4px;text-decoration:none;font-weight:bold">Open the ladder</a></p>`;
