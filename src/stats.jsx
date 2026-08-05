@@ -873,3 +873,110 @@ export function StatsTab({ players, logsByName, onPlayer }) {
     </div>
   );
 }
+
+// ================================================================
+// EXPANDED CHALLENGE DETAILS — the tap-to-expand head-to-head view
+// from Rally Report's pending-challenges list. Logs are already in
+// memory here, so details render instantly (no loading state).
+// ================================================================
+export function pairDetails(pA, pB, logsByName) {
+  if (!pA || !pB || !logsByName) return null;
+  const logA = logsByName.get(pA.name) || [];
+  const logB = logsByName.get(pB.name) || [];
+  const h2hAll = h2hMatches(logA, pB.name);
+  const w = h2hAll.filter((m) => m.win).length;
+  const l = h2hAll.length - w;
+  const last = h2hAll[h2hAll.length - 1] || null;
+  return { h2h: { w, l }, last, lastA5: logA.slice(-5), lastB5: logB.slice(-5) };
+}
+
+const dotRow = (ms) =>
+  ms.map((m, j) => (
+    <span
+      key={j}
+      title={`${fmtD(m.date)} vs ${m.opp}: ${m.win ? "W" : "L"} ${m.score}`}
+      style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: m.win ? C.ball : C.red, marginRight: 4 }}
+    />
+  ));
+
+function ChallengeDetail({ det, aName, bName }) {
+  if (!det) return null;
+  return (
+    <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed rgba(245,242,232,0.15)", fontSize: 13 }}>
+      <div style={{ display: "grid", gap: 10 }}>
+        <div style={{ fontFamily: MONO }}>
+          <span style={{ color: C.mute, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginRight: 10 }}>Head to head</span>
+          {det.h2h.w + det.h2h.l === 0 ? (
+            <span style={{ color: C.line }}>First meeting</span>
+          ) : det.h2h.w === det.h2h.l ? (
+            <span style={{ color: C.line, fontWeight: 700 }}>
+              Tied {det.h2h.w}–{det.h2h.l}
+            </span>
+          ) : (
+            <span style={{ color: C.line, fontWeight: 700 }}>
+              {det.h2h.w > det.h2h.l
+                ? `${aName} leads ${det.h2h.w}–${det.h2h.l}`
+                : `${bName} leads ${det.h2h.l}–${det.h2h.w}`}
+            </span>
+          )}
+        </div>
+        {det.last && (
+          <div style={{ fontFamily: MONO, color: C.mute, fontSize: 12 }}>
+            Last meeting: {fmtD(det.last.date)} · {det.last.win ? aName : bName} won {det.last.score}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ color: C.mute, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginBottom: 4, fontFamily: MONO }}>
+              {aName} · last 5
+            </div>
+            {det.lastA5.length ? dotRow(det.lastA5) : <span style={{ color: C.mute, fontSize: 12 }}>No matches yet</span>}
+          </div>
+          <div>
+            <div style={{ color: C.mute, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginBottom: 4, fontFamily: MONO }}>
+              {bName} · last 5
+            </div>
+            {det.lastB5.length ? dotRow(det.lastB5) : <span style={{ color: C.mute, fontSize: 12 }}>No matches yet</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Self-contained odds display: bar + tap-to-expand details. Drop-in
+// wherever a challenge between two known players is shown.
+export function ChallengeOddsBlock({ pA, pB, logsByName, ladderSize, compact }) {
+  const [open, setOpen] = useState(false);
+  if (!pA || !pB || !logsByName) return null;
+  const odds = oddsForPair(pA, pB, logsByName, ladderSize);
+  if (!odds) return null;
+  const aName = pA.name.split(" ")[0];
+  const bName = pB.name.split(" ")[0];
+  const det = open ? pairDetails(pA, pB, logsByName) : null;
+  return (
+    <div onClick={(e) => { e.stopPropagation(); setOpen(!open); }} style={{ cursor: "pointer" }}>
+      <OddsBar
+        odds={odds}
+        leftName={aName}
+        rightName={bName}
+        compact={compact}
+        note={`win probability ${open ? "▾" : "▸"}`}
+      />
+      {open && <ChallengeDetail det={det} aName={aName} bName={bName} />}
+    </div>
+  );
+}
+
+// The methodology blurb from the bottom of Rally Report's pending list,
+// adapted: logs live in memory here, so odds are always full-strength.
+export function OddsExplainer() {
+  return (
+    <div style={{ marginTop: 12, color: C.mute, fontSize: 12, textAlign: "center", lineHeight: 1.5 }}>
+      Odds blend each player's record — recent results weighted heaviest, each scaled by score
+      margin and opponent strength (beating a top player counts extra, losing to one counts less
+      against you) — plus rank gap, current streak, and head-to-head history, where the last
+      meeting counts most. Tap any matchup for the head-to-head details.
+    </div>
+  );
+}
