@@ -460,7 +460,11 @@ function App() {
 
   const open = challenges.filter((c) => ["pending", "accepted", "reported"].includes(c.status));
   const myOpen = meP ? open.filter((c) => c.challenger_id === meP.id || c.opponent_id === meP.id) : [];
-  const completed = challenges.filter((c) => c.status === "completed");
+  // Sort by when the match was actually reported, not when the challenge
+  // was issued — the list displays reported_at, so it must sort by it too.
+  const completed = challenges
+    .filter((c) => c.status === "completed")
+    .sort((a, b) => new Date(b.reported_at || b.created_at) - new Date(a.reported_at || a.created_at));
   // Wildcard matches are admin-arranged and sit outside every limit:
   // they never count toward a player's active challenges, never block an
   // opponent's incoming slot, and never trip the rematch cooldown.
