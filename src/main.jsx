@@ -390,6 +390,12 @@ function App() {
   const [loginSent, setLoginSent] = useState(!!pendingLogin);
   const [loginCode, setLoginCode] = useState("");
   const [showLogin, setShowLogin] = useState(!!pendingLogin);
+  const [showJoin, setShowJoin] = useState(false);
+  const [joinName, setJoinName] = useState("");
+  const [joinEmail, setJoinEmail] = useState("");
+  const [joinPhone, setJoinPhone] = useState("");
+  const [joinNote, setJoinNote] = useState("");
+  const [joinBusy, setJoinBusy] = useState(false);
 
   const [target, setTarget] = useState(null);      // player being challenged
   const [reporting, setReporting] = useState(null); // challenge being scored
@@ -514,6 +520,40 @@ function App() {
       .sort((a, b) => new Date(a.by) - new Date(b.by));
   }, [meP, myOpen, byId]);
 
+  function openJoin(prefillEmail) {
+    if (prefillEmail && !joinEmail) setJoinEmail(prefillEmail);
+    setShowLogin(false); setLoginSent(false);
+    setShowJoin(true);
+  }
+
+  async function submitJoin() {
+    if (joinBusy) return;
+    setJoinBusy(true);
+    try {
+      const r = await fetch("/api/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: joinName, email: joinEmail, phone: joinPhone, note: joinNote }),
+      });
+      const out = await r.json();
+      if (out.already) {
+        say("You're already on the ladder — just sign in with that email.");
+        setShowJoin(false); setLoginEmail(joinEmail.trim().toLowerCase()); setShowLogin(true);
+        return;
+      }
+      if (out.duplicate) {
+        say("You've already requested to join — Matt will be in touch.");
+        setShowJoin(false);
+        return;
+      }
+      if (!r.ok || out.error) throw new Error(out.error || "Could not send your request");
+      setShowJoin(false);
+      setJoinName(""); setJoinEmail(""); setJoinPhone(""); setJoinNote("");
+      say("Request sent — Matt will review it and email you.");
+    } catch (e) { say(e.message, true); }
+    finally { setJoinBusy(false); }
+  }
+
   async function sendLogin() {
     try {
       const email = loginEmail.trim().toLowerCase();
@@ -526,7 +566,8 @@ function App() {
         .limit(1);
       if (lookupErr) throw lookupErr;
       if (!match || match.length === 0) {
-        say("That email isn't on the ladder. Contact Matt Selwyn to join: 540-498-0799", true);
+        say("That email isn't on the ladder yet — request to join below.", true);
+        openJoin(email);
         return;
       }
       // Removed players can't sign in. Temp drops (vacation) still can.
@@ -743,7 +784,10 @@ function App() {
             )}
             {!session && (
               <div style={{ fontSize: 12, color: C.mute, fontFamily: MONO, marginBottom: 10 }}>
-                Sign in to issue challenges and report scores.
+                Sign in to issue challenges and report scores.{" "}
+                <button onClick={() => openJoin("")} style={{ background: "none", border: "none", padding: 0, color: C.ball, fontFamily: MONO, fontSize: 12, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>
+                  New here? Request to join
+                </button>
               </div>
             )}
             <Card style={{ padding: 0 }}>
@@ -929,8 +973,33 @@ function App() {
             </div>
             <Field label="Email" type="email" value={loginEmail} onChange={setLoginEmail} placeholder="you@example.com" />
             <Btn onClick={sendLogin} disabled={!loginEmail.includes("@")}>Email me a code</Btn>
+            <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${C.faint}`, fontSize: 13, color: C.mute }}>
+              Not on the ladder yet?{" "}
+              <button onClick={() => openJoin(loginEmail)} style={{ background: "none", border: "none", padding: 0, color: C.ball, fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>
+                Request to join
+              </button>
+            </div>
           </>
         )}
+      </Sheet>
+
+      {/* request to join sheet */}
+      <Sheet open={showJoin} onClose={() => setShowJoin(false)} title="Request to join">
+        <div style={{ color: C.mute, fontSize: 13, marginBottom: 14, lineHeight: 1.5 }}>
+          The FXBG Singles Ladder is an open rec league. Send this over and Matt
+          will add you at the bottom of the ladder — you'll get an email when
+          you're in, then you sign in with this same address.
+        </div>
+        <Field label="Name" value={joinName} onChange={setJoinName} placeholder="First and last" />
+        <Field label="Email" type="email" value={joinEmail} onChange={setJoinEmail} placeholder="you@example.com" />
+        <Field label="Phone (optional)" value={joinPhone} onChange={setJoinPhone} placeholder="540-555-0123" />
+        <Field label="Anything else? (optional)" value={joinNote} onChange={setJoinNote} placeholder="NTRP rating, who referred you, when you play" />
+        <Btn onClick={submitJoin} disabled={joinBusy || !joinName.trim() || !joinEmail.includes("@")}>
+          {joinBusy ? "Sending…" : "Send request"}
+        </Btn>
+        <div style={{ color: C.mute, fontSize: 12, marginTop: 12 }}>
+          Questions? Matt Selwyn · 540-498-0799
+        </div>
       </Sheet>
 
       {/* challenge sheet */}
@@ -1002,8 +1071,27 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
   const [wcA, setWcA] = useState("");
   const [wcB, setWcB] = useState("");
   const [wcDays, setWcDays] = useState(String(settings?.play_days ?? 10));
+  const [joinReqs, setJoinReqs] = useState([]);
 
   useEffect(() => { if (settings) setS(settings); }, [settings]);
+
+  async function loadJoinReqs() {
+    try { setJoinReqs((await rpc("list_join_requests")) || []); } catch { setJoinReqs([]); }
+  }
+  useEffect(() => { loadJoinReqs(); }, []);
+
+  async function handleJoinReq(r, approve) {
+    const msg = approve
+      ? `Approve ${r.name}? They go to the bottom of the ladder and can sign in with ${r.email}.`
+      : `Deny ${r.name}? They are not added and not emailed.`;
+    if (!confirm(msg)) return;
+    try {
+      await rpc(approve ? "approve_join_request" : "deny_join_request", { p_id: r.id });
+      say(approve ? `${r.name} added to the bottom of the ladder` : `Request from ${r.name} denied`);
+      loadJoinReqs();
+      if (approve) reload();
+    } catch (e) { say(e.message, true); }
+  }
 
   async function addPlayer() {
     try {
@@ -1121,6 +1209,27 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
 
   return (
     <>
+      {joinReqs.length > 0 && (
+        <>
+          <Eyebrow>Join requests ({joinReqs.length})</Eyebrow>
+          <Card style={{ padding: 0, marginBottom: 16 }}>
+            {joinReqs.map((r, i) => (
+              <div key={r.id} style={{ padding: "12px 14px", borderTop: i ? `1px solid ${C.faint}` : "none" }}>
+                <div style={{ fontWeight: 700, color: C.line }}>{r.name}</div>
+                <div style={{ fontSize: 12, color: C.mute, fontFamily: MONO, marginTop: 3 }}>
+                  {r.email}{r.phone ? ` · ${r.phone}` : ""}
+                </div>
+                {r.note && <div style={{ fontSize: 13, color: C.line, marginTop: 6, lineHeight: 1.4 }}>{r.note}</div>}
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  <Btn small onClick={() => handleJoinReq(r, true)}>Approve</Btn>
+                  <Btn small kind="ghost" onClick={() => handleJoinReq(r, false)}>Deny</Btn>
+                </div>
+              </div>
+            ))}
+          </Card>
+        </>
+      )}
+
       <Eyebrow>Roster</Eyebrow>
       <Card style={{ marginBottom: 16 }}>
         <Field label="Name" value={name} onChange={setName} placeholder="First Last" />
