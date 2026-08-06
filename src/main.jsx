@@ -520,6 +520,19 @@ function App() {
       .sort((a, b) => new Date(a.by) - new Date(b.by));
   }, [meP, myOpen, byId]);
 
+  // Player report opens in-place over the ladder; the browser keeps the
+  // page's scroll position unless we manage it. Scroll to top when a
+  // report opens, and put the user back where they were on BACK.
+  const savedScroll = React.useRef(0);
+  useEffect(() => {
+    if (reportPlayer) {
+      savedScroll.current = window.scrollY;
+      window.scrollTo(0, 0);
+    } else {
+      window.scrollTo(0, savedScroll.current);
+    }
+  }, [reportPlayer]);
+
   function openJoin(prefillEmail) {
     if (prefillEmail && !joinEmail) setJoinEmail(prefillEmail);
     setShowLogin(false); setLoginSent(false);
