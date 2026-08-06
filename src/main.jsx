@@ -537,6 +537,10 @@ function App() {
     }
   }, [reportPlayer]);
 
+  // Same problem on tab switches: content swaps in place, scroll persists.
+  // Every tab change starts at the top.
+  useEffect(() => { window.scrollTo(0, 0); }, [tab]);
+
   function openJoin(prefillEmail) {
     if (prefillEmail && !joinEmail) setJoinEmail(prefillEmail);
     setShowLogin(false); setLoginSent(false);
