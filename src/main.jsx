@@ -212,7 +212,7 @@ function Movement({ n }) {
   );
 }
 
-function LadderRow({ p, meP, canChallenge, blockReason, openCh, onTap, act }) {
+function LadderRow({ p, meP, canChallenge, blockReason, openCh, onTap, onChallenge, onBlocked, act }) {
   const isMe = meP && p.id === meP.id;
   const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
   return (
@@ -262,15 +262,16 @@ function LadderRow({ p, meP, canChallenge, blockReason, openCh, onTap, act }) {
         <div style={{ fontFamily: MONO, fontSize: 10, color: C.clay, background: C.ball, borderRadius: 3, padding: "3px 6px", fontWeight: 700 }}>VS</div>
       )}
       {canChallenge && !openCh && (
-        <div style={{ fontFamily: MONO, fontSize: 11, color: C.ball, border: `1px solid rgba(216,245,41,0.4)`, borderRadius: 3, padding: "3px 8px" }}>
+        <button onClick={stop(onChallenge)}
+          style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, background: "transparent", color: C.ball, border: `1px solid rgba(216,245,41,0.4)`, borderRadius: 3, padding: "6px 10px", cursor: "pointer" }}>
           CHALLENGE
-        </div>
+        </button>
       )}
       {!canChallenge && !openCh && blockReason && (
-        <div title={blockReason === "COOLDOWN" ? "Ineligible — you played this player recently (rematch cooldown)" : "Ineligible — this player is already tied up in a challenge"}
-          style={{ fontFamily: MONO, fontSize: 10, color: C.red, border: `1px solid rgba(232,96,76,0.5)`, borderRadius: 3, padding: "3px 7px" }}>
+        <button onClick={stop(onBlocked)}
+          style={{ fontFamily: MONO, fontSize: 10, background: "transparent", color: C.red, border: `1px solid rgba(232,96,76,0.5)`, borderRadius: 3, padding: "6px 8px", cursor: "pointer" }}>
           INELIGIBLE
-        </div>
+        </button>
       )}
     </div>
   );
@@ -507,7 +508,17 @@ function App() {
     if (openWith(p.id)) return null; // row already shows the open-challenge UI
     if (rematchBlocked(p.id)) return "COOLDOWN";
     if (incomingBusy(p.id)) return "CHALLENGED";
+    if (myActiveCount >= settings.max_active_challenges) return "AT_CAP";
     return null;
+  };
+
+  // Tapping the red INELIGIBLE chip explains why (mobile has no hover tooltips)
+  const explainBlock = (p) => {
+    const r = blockReason(p);
+    const first = p.name.split(" ")[0];
+    if (r === "COOLDOWN") say(`You played ${first} in the last ${settings.rematch_days} days — rematch cooldown. Try again soon.`, true);
+    else if (r === "CHALLENGED") say(`${first} already has an incoming challenge. Try again once it's resolved.`, true);
+    else if (r === "AT_CAP") say(`You're at your limit of ${settings.max_active_challenges} active challenge${settings.max_active_challenges === 1 ? "" : "s"} — play or withdraw one first.`, true);
   };
 
   const myDeadlines = useMemo(() => {
@@ -819,6 +830,8 @@ function App() {
                   blockReason={blockReason(p)}
                   openCh={openWith(p.id)}
                   onTap={() => setReportPlayer(p)}
+                  onChallenge={() => setTarget(p)}
+                  onBlocked={() => explainBlock(p)}
                   act={act}
                 />
               ))}
