@@ -103,12 +103,12 @@ async function rpc(name, args) {
   return data;
 }
 
-function notify(type, challengeId) {
+function notify(type, challengeId, extra) {
   // fire-and-forget; email failures never block the app
   fetch("/api/notify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, challengeId }),
+    body: JSON.stringify({ type, challengeId, ...(extra || {}) }),
   }).catch(() => {});
 }
 
@@ -815,11 +815,26 @@ function App() {
               </div>
             )}
             {!session && (
-              <div style={{ fontSize: 12, color: C.mute, fontFamily: MONO, marginBottom: 10 }}>
-                Sign in to issue challenges and report scores.{" "}
-                <button onClick={() => openJoin("")} style={{ background: "none", border: "none", padding: 0, color: C.ball, fontFamily: MONO, fontSize: 12, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>
-                  New here? Request to join
+              <div style={{ border: `2px solid ${C.ball}`, borderRadius: 8, padding: 16, marginBottom: 14, background: "rgba(216,245,41,0.07)" }}>
+                <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: 2, color: C.ball, textTransform: "uppercase", marginBottom: 8 }}>
+                  New here?
+                </div>
+                <div style={{ fontSize: 13, color: C.line, lineHeight: 1.5, marginBottom: 14 }}>
+                  The FXBG Singles Ladder is an open rec league. Send a request and Matt
+                  will add you at the bottom of the ladder.
+                </div>
+                <button
+                  onClick={() => openJoin("")}
+                  style={{ display: "block", width: "100%", background: C.ball, color: C.clay, border: "2px solid transparent", borderRadius: 4, padding: "15px 18px", fontFamily: MONO, fontWeight: 700, fontSize: 15, letterSpacing: 0.5, cursor: "pointer" }}
+                >
+                  REQUEST TO JOIN
                 </button>
+                <div style={{ fontSize: 12, color: C.mute, fontFamily: MONO, marginTop: 12, textAlign: "center" }}>
+                  Already on the ladder?{" "}
+                  <button onClick={() => setShowLogin(true)} style={{ background: "none", border: "none", padding: 0, color: C.ball, fontFamily: MONO, fontSize: 12, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>
+                    Sign in
+                  </button>
+                </div>
               </div>
             )}
             <Card style={{ padding: 0 }}>
@@ -1007,10 +1022,13 @@ function App() {
             </div>
             <Field label="Email" type="email" value={loginEmail} onChange={setLoginEmail} placeholder="you@example.com" />
             <Btn onClick={sendLogin} disabled={!loginEmail.includes("@")}>Email me a code</Btn>
-            <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${C.faint}`, fontSize: 13, color: C.mute }}>
-              Not on the ladder yet?{" "}
-              <button onClick={() => openJoin(loginEmail)} style={{ background: "none", border: "none", padding: 0, color: C.ball, fontFamily: "inherit", fontSize: 13, fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>
-                Request to join
+            <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${C.faint}` }}>
+              <div style={{ fontSize: 13, color: C.mute, marginBottom: 10 }}>Not on the ladder yet?</div>
+              <button
+                onClick={() => openJoin(loginEmail)}
+                style={{ display: "block", width: "100%", background: "transparent", color: C.ball, border: `2px solid ${C.ball}`, borderRadius: 4, padding: "13px 18px", fontFamily: MONO, fontWeight: 700, fontSize: 14, letterSpacing: 0.5, cursor: "pointer" }}
+              >
+                REQUEST TO JOIN
               </button>
             </div>
           </>
@@ -1121,7 +1139,8 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
     if (!confirm(msg)) return;
     try {
       await rpc(approve ? "approve_join_request" : "deny_join_request", { p_id: r.id });
-      say(approve ? `${r.name} added to the bottom of the ladder` : `Request from ${r.name} denied`);
+      if (approve && r.email) notify("welcome", null, { email: r.email });
+      say(approve ? `${r.name} added to the bottom of the ladder — welcome email sent` : `Request from ${r.name} denied`);
       loadJoinReqs();
       if (approve) reload();
     } catch (e) { say(e.message, true); }
@@ -1130,7 +1149,8 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
   async function addPlayer() {
     try {
       await rpc("admin_upsert_player", { p_name: name, p_email: email, p_phone: phone });
-      say(`${name} added to the bottom of the ladder`);
+      if (email.trim()) notify("welcome", null, { email: email.trim() });
+      say(`${name} added to the bottom of the ladder${email.trim() ? " — welcome email sent" : ""}`);
       setName(""); setEmail(""); setPhone("");
       reload();
     } catch (e) { say(e.message, true); }
