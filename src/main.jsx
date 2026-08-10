@@ -258,7 +258,13 @@ function LadderRow({ p, meP, canChallenge, blockReason, openCh, onTap, onChallen
           WITHDRAW
         </button>
       )}
-      {openCh && (openCh.ch.status === "accepted" || openCh.ch.status === "reported") && (
+      {openCh && openCh.ch.status === "accepted" && (
+        <button onClick={stop(() => act("report", openCh.ch))}
+          style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, background: C.ball, color: C.clay, border: "none", borderRadius: 3, padding: "6px 12px", cursor: "pointer" }}>
+          SCORE
+        </button>
+      )}
+      {openCh && openCh.ch.status === "reported" && (
         <div style={{ fontFamily: MONO, fontSize: 10, color: C.clay, background: C.ball, borderRadius: 3, padding: "3px 6px", fontWeight: 700 }}>VS</div>
       )}
       {canChallenge && !openCh && (
