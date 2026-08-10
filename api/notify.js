@@ -10,8 +10,9 @@
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  const { type, challengeId } = req.body || {};
-  if (!type || !challengeId) return res.status(400).json({ error: "Missing type or challengeId" });
+  const { type, challengeId, email } = req.body || {};
+  if (!type) return res.status(400).json({ error: "Missing type" });
+  if (type !== "welcome" && !challengeId) return res.status(400).json({ error: "Missing challengeId" });
 
   const SB = process.env.SUPABASE_URL;
   const KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -27,6 +28,44 @@ export default async function handler(req, res) {
   };
 
   try {
+    // ---- WELCOME: no challenge involved, looked up by email ----
+    if (type === "welcome") {
+      if (!email) return res.status(400).json({ error: "Missing email" });
+      const site = process.env.SITE_URL || "https://rallyladders.com";
+      const [p] = await sbFetch(`players?email=eq.${encodeURIComponent(String(email).trim().toLowerCase())}&select=*`);
+      if (!p || !p.email) return res.status(200).json({ skipped: "player not found" });
+      const fromAddrW = FROM.includes("<") ? FROM.match(/<([^>]+)>/)[1] : FROM;
+      const openBtn = `<p><a href="${site}" style="background:#D8F529;color:#0F2E25;padding:14px 22px;border-radius:4px;text-decoration:none;font-weight:bold">Open the ladder</a></p>`;
+      const first = String(p.name || "").split(" ")[0] || "there";
+      const w = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND}` },
+        body: JSON.stringify({
+          from: `FXBG Ladder <${fromAddrW}>`,
+          to: p.email,
+          subject: `You're on the FXBG Singles Ladder`,
+          html: `<p>Welcome to the ladder, ${first}!</p>
+            <p>Matt will place you on the ladder based on your level — open the app any time
+              to see where you landed. Here's how it works:</p>
+            <ul style="line-height:1.7">
+              <li><b>Challenge up.</b> You can challenge anyone up to a few spots above you. Tap their row on the ladder and hit Challenge.</li>
+              <li><b>They have a few days to accept</b>, then you both have a window to actually play. You'll get emails with the deadlines.</li>
+              <li><b>Win and you take their spot.</b> Everyone in between slides down one. Lose and nothing changes.</li>
+              <li><b>Either player reports the score</b> in the app when you're done.</li>
+            </ul>
+            <p><b>Signing in:</b> go to <a href="${site}">rallyladders.com</a>, tap Sign in, and enter
+              <b>${p.email}</b>. We'll email you a 6-digit code — it's right in the subject line.
+              No password, and you only do this once per device.</p>
+            <p>On your phone you can add it to your home screen and it works like an app
+              (Share &rarr; Add to Home Screen).</p>
+            ${openBtn}
+            <p>Questions? Matt Selwyn &middot; 540-498-0799</p>`,
+        }),
+      });
+      const outW = await w.json();
+      return res.status(200).json({ sent: true, id: outW.id });
+    }
+
     const [ch] = await sbFetch(`challenges?id=eq.${challengeId}&select=*`);
     if (!ch) return res.status(404).json({ error: "Challenge not found" });
     const [challenger] = await sbFetch(`players?id=eq.${ch.challenger_id}&select=*`);
