@@ -640,7 +640,7 @@ function App() {
 
   function confirmSignOut() {
     if (confirm("Sign out? You'll need a new code to get back in.")) {
-      supabase.auth.signOut();
+      supabase.auth.signOut({ scope: "local" });
     }
   }
 
