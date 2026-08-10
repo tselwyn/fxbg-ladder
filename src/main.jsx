@@ -877,9 +877,9 @@ function App() {
                 onClick={tempDrop}
                 style={{
                   display: "block", width: "100%", textAlign: "center", marginTop: 12,
-                  padding: "12px 14px", border: `1px solid ${C.faint}`, borderRadius: 8,
-                  background: "none", cursor: "pointer",
-                  fontFamily: MONO, fontSize: 13, letterSpacing: 1, color: C.mute,
+                  padding: "13px 14px", border: `2px solid ${C.red}`, borderRadius: 8,
+                  background: "transparent", cursor: "pointer",
+                  fontFamily: MONO, fontSize: 13, fontWeight: 700, letterSpacing: 1, color: C.red,
                 }}
               >
                 NEED A BREAK? TEMP DROP OFF THE LADDER
