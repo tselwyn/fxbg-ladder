@@ -273,12 +273,20 @@ function LadderRow({ p, meP, canChallenge, blockReason, openCh, onTap, onChallen
           CHALLENGE
         </button>
       )}
-      {!canChallenge && !openCh && blockReason && (
-        <button onClick={stop(onBlocked)}
-          style={{ fontFamily: MONO, fontSize: 10, background: "transparent", color: C.red, border: `1px solid rgba(232,96,76,0.5)`, borderRadius: 3, padding: "6px 8px", cursor: "pointer" }}>
-          INELIGIBLE
-        </button>
-      )}
+      {!canChallenge && !openCh && blockReason && (() => {
+        // A wildcard between these two isn't a fault state — it's an admin-made
+        // match in progress — so it gets the ball-yellow treatment, not the red one.
+        const wc = blockReason === "WILDCARD";
+        return (
+          <button onClick={stop(onBlocked)}
+            style={{ fontFamily: MONO, fontSize: 10, background: "transparent",
+              color: wc ? C.ball : C.red,
+              border: `1px solid ${wc ? "rgba(216,245,41,0.4)" : "rgba(232,96,76,0.5)"}`,
+              borderRadius: 3, padding: "6px 8px", cursor: "pointer" }}>
+            {wc ? "WILDCARD" : "INELIGIBLE"}
+          </button>
+        );
+      })()}
     </div>
   );
 }
@@ -483,6 +491,16 @@ function App() {
       (c.challenger_id === pid && c.opponent_id === meP.id));
     return ch ? { ch, iAmOpponent: ch.opponent_id === meP.id } : null;
   };
+  // An open wildcard between me and this player. Wildcards sit outside every
+  // LIMIT (slots, incoming, cooldown) but there can still only be one live match
+  // per pair, so this blocks a normal challenge until the wildcard resolves.
+  const wildcardWith = (pid) => {
+    if (!meP) return null;
+    return open.find((c) =>
+      c.is_wildcard &&
+      ((c.challenger_id === meP.id && c.opponent_id === pid) ||
+       (c.challenger_id === pid && c.opponent_id === meP.id))) || null;
+  };
   const myActiveCount = meP ? open.filter((c) => c.challenger_id === meP.id && notWc(c)).length : 0;
 
   const rematchBlocked = (pid) => {
@@ -505,13 +523,14 @@ function App() {
     meP && settings && p.id !== meP.id && p.rank < meP.rank &&
     meP.rank - p.rank <= settings.challenge_range &&
     myActiveCount < settings.max_active_challenges && !openWith(p.id) &&
-    !rematchBlocked(p.id) && !incomingBusy(p.id);
+    !wildcardWith(p.id) && !rematchBlocked(p.id) && !incomingBusy(p.id);
 
   // Why can't I challenge this otherwise-in-range player? (for the red chip)
   const blockReason = (p) => {
     if (!meP || !settings || p.id === meP.id || p.rank >= meP.rank) return null;
     if (meP.rank - p.rank > settings.challenge_range) return null;
     if (openWith(p.id)) return null; // row already shows the open-challenge UI
+    if (wildcardWith(p.id)) return "WILDCARD";
     if (rematchBlocked(p.id)) return "COOLDOWN";
     if (incomingBusy(p.id)) return "CHALLENGED";
     if (myActiveCount >= settings.max_active_challenges) return "AT_CAP";
@@ -522,7 +541,8 @@ function App() {
   const explainBlock = (p) => {
     const r = blockReason(p);
     const first = p.name.split(" ")[0];
-    if (r === "COOLDOWN") say(`You played ${first} in the last ${settings.rematch_days} days — rematch cooldown. Try again soon.`, true);
+    if (r === "WILDCARD") say(`You already have a wildcard match against ${first}. Play it and report the score — then you can challenge them normally, with no cooldown.`);
+    else if (r === "COOLDOWN") say(`You played ${first} in the last ${settings.rematch_days} days — rematch cooldown. Try again soon.`, true);
     else if (r === "CHALLENGED") say(`${first} already has an incoming challenge. Try again once it's resolved.`, true);
     else if (r === "AT_CAP") say(`You're at your limit of ${settings.max_active_challenges} active challenge${settings.max_active_challenges === 1 ? "" : "s"} — play or withdraw one first.`, true);
   };
@@ -1221,6 +1241,14 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
     catch (e) { say(e.message, true); }
   }
 
+  // Permanently remove someone who temp dropped and isn't coming back.
+  // admin_remove_player also clears the dropped flag, so they leave this list.
+  async function removeDropped(p) {
+    if (!confirm(`Remove ${p.name} from the ladder for good?\n\nThey come off the Temp drops list entirely. Reinstating them later means adding them back as a new player at the bottom.`)) return;
+    try { await rpc("admin_remove_player", { p_player: p.id }); say(`${p.name} removed from the ladder`); reload(); }
+    catch (e) { say(e.message, true); }
+  }
+
   async function adminTempDrop(p) {
     if (!confirm(`Temp drop ${p.name} (vacation etc.)? They lose their spot, everyone below moves up, and any open challenges are cancelled. Reinstate them from the Temp drops list when they're back.`)) return;
     try { await rpc("admin_temp_drop", { p_player: p.id }); say(`${p.name} is on a temp drop`); reload(); }
@@ -1421,6 +1449,7 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
                     reload();
                   } catch (e) { say(e.message, true); }
                 }}>Reinstate</Btn>
+                <Btn small kind="danger" onClick={() => removeDropped(p)}>&#10005;</Btn>
               </div>
             ))}
           </Card>
