@@ -97,6 +97,12 @@ alter table players    add column if not exists email_token uuid not null defaul
 alter table challenges add column if not exists challenger_rank integer;
 alter table challenges add column if not exists opponent_rank integer;
 alter table settings   add column if not exists max_incoming_challenges integer not null default 1;
+alter table challenges add column if not exists play_reminder_sent_at timestamp with time zone;
+
+-- Speeds up the daily "expires tomorrow" reminder scan in api/tick.js.
+create index if not exists challenges_play_reminder_idx
+  on challenges (play_by)
+  where status = 'accepted' and play_reminder_sent_at is null;
 
 -- Settings singleton
 insert into settings (id) values (1) on conflict do nothing;
@@ -566,7 +572,11 @@ begin
   update challenges set status = 'cancelled'
     where status in ('pending','accepted','reported')
       and (challenger_id = p_player or opponent_id = p_player);
-  update players set active = false, rank = 9999 where id = p_player;
+  -- dropped = false matters: without it, removing someone who is on a temp
+  -- drop leaves dropped = true and they stay on the Temp drops list forever
+  -- with no way to clear them.
+  update players set active = false, dropped = false, rank = 9999, rank_change = 0
+    where id = p_player;
   update players set rank = rank - 1 where active and rank > old;
 end $function$
 ;
