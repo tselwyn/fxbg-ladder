@@ -97,6 +97,7 @@ alter table players    add column if not exists email_token uuid not null defaul
 alter table challenges add column if not exists challenger_rank integer;
 alter table challenges add column if not exists opponent_rank integer;
 alter table settings   add column if not exists max_incoming_challenges integer not null default 1;
+alter table challenges add column if not exists is_wildcard boolean not null default false;
 alter table challenges add column if not exists play_reminder_sent_at timestamp with time zone;
 
 -- Speeds up the daily "expires tomorrow" reminder scan in api/tick.js.
@@ -106,6 +107,19 @@ create index if not exists challenges_play_reminder_idx
 
 -- Settings singleton
 insert into settings (id) values (1) on conflict do nothing;
+
+create table if not exists join_requests (
+  id uuid not null default gen_random_uuid(),
+  name text not null,
+  email text not null,
+  phone text,
+  note text,
+  status text not null default 'pending'::text,
+  created_at timestamp with time zone not null default now(),
+  handled_at timestamp with time zone,
+  handled_by uuid,
+  PRIMARY KEY (id)
+);
 
 -- ---------- FOREIGN KEYS ----------
 
@@ -122,6 +136,11 @@ alter table challenges add constraint challenges_winner_id_fkey FOREIGN KEY (win
 
 create unique index if not exists legacy_matches_dedup
   on public.legacy_matches using btree (player_name, opponent_name, played_on, score);
+
+-- One pending application per email address. api/join.js relies on the 23505
+-- this throws to tell an applicant they've already applied.
+create unique index if not exists join_requests_pending_email
+  on public.join_requests using btree (lower(email)) where (status = 'pending');
 
 -- ---------- ROW LEVEL SECURITY ----------
 
@@ -149,6 +168,13 @@ drop policy if exists "legacy read" on legacy_matches;
 create policy "legacy read" on legacy_matches
   as permissive for select to public
   using (true);
+
+-- join_requests deliberately has RLS ON and NO policies. Applicant names,
+-- emails and phone numbers must never be publicly readable. Everything that
+-- touches this table goes through either a SECURITY DEFINER RPC that calls
+-- assert_admin() (list/approve/deny) or the service key in api/join.js.
+-- Do not add a permissive read policy here.
+alter table join_requests enable row level security;
 
 -- ---------- HELPERS ----------
 
@@ -480,6 +506,110 @@ end $function$
 ;
 
 -- ---------- ADMIN ----------
+
+-- Admin-arranged match between any two active players. Ignores challenge
+-- range, slot limits and the rematch cooldown; goes straight to 'accepted'
+-- with no accept step. The lower-ranked player is stored as challenger so
+-- apply_result's normal bump logic works unchanged.
+CREATE OR REPLACE FUNCTION public.admin_create_wildcard(p_a uuid, p_b uuid, p_play_days integer DEFAULT NULL::integer)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare s settings; a players; b players; lo players; hi players; cid uuid; d int;
+begin
+  perform assert_admin();
+  s := (select settings from settings where id = 1);
+
+  if p_a = p_b then raise exception 'Pick two different players'; end if;
+
+  select * into a from players where id = p_a and active;
+  if not found then raise exception 'Both players must be active on the ladder'; end if;
+
+  select * into b from players where id = p_b and active;
+  if not found then raise exception 'Both players must be active on the ladder'; end if;
+
+  -- lower-ranked player (bigger rank number) is the challenger
+  if a.rank > b.rank then lo := a; hi := b; else lo := b; hi := a; end if;
+
+  -- one open wildcard per pair at a time
+  if exists (
+    select 1 from challenges
+    where coalesce(is_wildcard, false)
+      and status in ('pending', 'accepted', 'reported')
+      and ((challenger_id = lo.id and opponent_id = hi.id)
+        or (challenger_id = hi.id and opponent_id = lo.id))
+  ) then
+    raise exception 'There is already an open wildcard match between these two';
+  end if;
+
+  d := greatest(1, coalesce(p_play_days, s.play_days));
+
+  insert into challenges (challenger_id, opponent_id, status, accept_by, play_by, is_wildcard)
+    values (lo.id, hi.id, 'accepted', now(), now() + make_interval(days => d), true)
+    returning id into cid;
+
+  update players set last_activity = now() where id in (lo.id, hi.id);
+
+  return cid;
+end $function$
+;
+
+-- ---------- JOIN REQUESTS ----------
+-- Public applications land in join_requests via api/join.js using the service
+-- key (the table has RLS on with no public policies). Admins triage them here.
+
+CREATE OR REPLACE FUNCTION public.list_join_requests()
+ RETURNS SETOF join_requests
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+AS $function$
+begin
+  perform assert_admin();
+  return query
+    select * from join_requests
+    where status = 'pending'
+    order by created_at asc;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.approve_join_request(p_id uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare r join_requests;
+begin
+  perform assert_admin();
+  select * into r from join_requests where id = p_id;
+  if r.id is null then raise exception 'Request not found'; end if;
+  if r.status <> 'pending' then raise exception 'Request already handled'; end if;
+  -- Adds at bottom rank; reactivates a previously-removed player if
+  -- the email matches an inactive row. Same path as the Roster card.
+  perform admin_upsert_player(r.name, r.email, r.phone);
+  update join_requests
+    set status = 'approved', handled_at = now(), handled_by = (me()).id
+    where id = p_id;
+end $function$
+;
+
+CREATE OR REPLACE FUNCTION public.deny_join_request(p_id uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+declare r join_requests;
+begin
+  perform assert_admin();
+  select * into r from join_requests where id = p_id;
+  if r.id is null then raise exception 'Request not found'; end if;
+  if r.status <> 'pending' then raise exception 'Request already handled'; end if;
+  update join_requests
+    set status = 'denied', handled_at = now(), handled_by = (me()).id
+    where id = p_id;
+end $function$
+;
+
 
 CREATE OR REPLACE FUNCTION public.admin_set_rank(p_player uuid, p_rank integer)
  RETURNS void
