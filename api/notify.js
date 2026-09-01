@@ -138,9 +138,10 @@ export default async function handler(req, res) {
         </p>`;
       html = `<p>A <b>wildcard match</b> has been set up between <b>${lo.name}</b> (#${lo.rank})
           and <b>${hi.name}</b> (#${hi.rank}).</p>
-        <p>Wildcard matches are arranged by an admin and are not limited by the normal
-          challenge range, so this one counts even though you are more than the usual
-          number of spots apart. It does not use up either of your challenge slots.</p>
+        <p>Wildcard matches are set up by an admin as an exception to the usual rules.
+          They ignore the normal challenge range, they don't use up either of your
+          challenge slots, and they don't trip the rematch cooldown. Otherwise this
+          one counts exactly like any other match.</p>
         <p>Use the contact info below to sort out the details. You have
           <b>${daysToPlay} day${daysToPlay === 1 ? "" : "s"}</b>
           (by <b>${new Date(ch.play_by).toLocaleDateString()}</b>) to play, and either
