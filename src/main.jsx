@@ -363,6 +363,163 @@ function ChallengeCard({ ch, meP, byId, act, logsByName, nPlayers }) {
   );
 }
 
+// ---- TOURNAMENT (phase 1: projected bracket, frontend only) ----
+// Hardcoded for the Oct 2026 end-of-season tournament. ET is still on
+// daylight time on Oct 11 (DST ends Nov 1), so 11:59 PM ET = -04:00.
+const TOURNEY_CUTOFF = new Date("2026-10-11T23:59:00-04:00");
+const TOURNEY_SIZE = 8;
+// Bracket order, top half first: 1v8 + 4v5 meet in one semi, 2v7 + 3v6 in the other.
+const TOURNEY_QF = [[1, 8], [4, 5], [2, 7], [3, 6]];
+const TOURNEY_ROUNDS = [
+  ["Quarterfinals", "Oct 12–21"],
+  ["Semifinals", "Oct 22–31"],
+  ["Final", "Nov 1–10"],
+];
+
+function Countdown({ to }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const ms = to - now;
+  if (ms <= 0) {
+    return (
+      <div style={{ fontFamily: MONO, fontSize: 13, color: C.ball, fontWeight: 700 }}>
+        Cutoff passed — bracket is being locked
+      </div>
+    );
+  }
+  const s = Math.floor(ms / 1000);
+  const parts = [
+    [Math.floor(s / 86400), "days"],
+    [Math.floor((s % 86400) / 3600), "hrs"],
+    [Math.floor((s % 3600) / 60), "min"],
+    [s % 60, "sec"],
+  ];
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      {parts.map(([n, unit]) => (
+        <div key={unit} style={{ flex: 1, textAlign: "center", background: C.clay, border: `1px solid ${C.faint}`, borderRadius: 4, padding: "8px 4px" }}>
+          <div style={{ fontFamily: MONO, fontSize: 24, fontWeight: 700, color: C.ball, lineHeight: 1.1 }}>
+            {String(n).padStart(2, "0")}
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: 2, color: C.mute, textTransform: "uppercase", marginTop: 2 }}>{unit}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BracketSlot({ seed, p, meP, onPlayer, last }) {
+  const isMe = meP && p && p.id === meP.id;
+  return (
+    <div
+      onClick={p ? () => onPlayer(p) : undefined}
+      style={{
+        display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+        borderBottom: last ? "none" : `1px solid ${C.faint}`,
+        cursor: p ? "pointer" : "default",
+        background: isMe ? "rgba(216,245,41,0.07)" : "transparent",
+        borderLeft: isMe ? `3px solid ${C.ball}` : "3px solid transparent",
+      }}
+    >
+      <div style={{ fontFamily: MONO, fontSize: 10, color: C.mute, width: 18, textAlign: "right" }}>{seed}</div>
+      <div style={{ flex: 1, minWidth: 0, color: p ? C.line : C.mute, fontSize: 15, fontWeight: isMe ? 700 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {p ? `${p.name}${isMe ? " (you)" : ""}` : "TBD"}
+      </div>
+      {p && <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute }}>#{p.rank}</div>}
+    </div>
+  );
+}
+
+function TournamentTab({ players, meP, onPlayer }) {
+  const ranked = [...players].sort((a, b) => a.rank - b.rank);
+  const seeds = ranked.slice(0, TOURNEY_SIZE); // seeds[0] = 1 seed
+  const bubble = ranked.slice(TOURNEY_SIZE, TOURNEY_SIZE + 2);
+  const roundHead = ([name, dates]) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "18px 0 10px" }}>
+      <div style={{ fontSize: 11, letterSpacing: 3, textTransform: "uppercase", color: C.mute, fontFamily: MONO }}>{name}</div>
+      <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute }}>{dates}</div>
+    </div>
+  );
+  const tbdMatch = (a, b, key) => (
+    <Card key={key} style={{ padding: "10px 14px", marginBottom: 8 }}>
+      <div style={{ fontFamily: MONO, fontSize: 12, color: C.mute }}>
+        {a} <span style={{ color: C.faint }}>vs</span> {b}
+      </div>
+    </Card>
+  );
+
+  return (
+    <>
+      <Eyebrow>End-of-season tournament</Eyebrow>
+      <Card style={{ marginBottom: 6, border: `1px solid ${C.ball}` }}>
+        <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: 2, color: C.ball, textTransform: "uppercase", marginBottom: 10 }}>
+          Projected — bracket locks Sun Oct 11
+        </div>
+        <Countdown to={TOURNEY_CUTOFF} />
+        <div style={{ fontSize: 12, color: C.mute, marginTop: 10, lineHeight: 1.5 }}>
+          Top {TOURNEY_SIZE} on the ladder at 11:59 PM ET Sun Oct 11 qualify. Best of 3, full third set.
+          Tournament results don't move ladder ranks.
+        </div>
+      </Card>
+
+      {roundHead(TOURNEY_ROUNDS[0])}
+      {TOURNEY_QF.map(([hi, lo], i) => (
+        <Card key={hi} style={{ padding: 0, marginBottom: i === 1 ? 16 : 8 }}>
+          <BracketSlot seed={hi} p={seeds[hi - 1]} meP={meP} onPlayer={onPlayer} />
+          <BracketSlot seed={lo} p={seeds[lo - 1]} meP={meP} onPlayer={onPlayer} last />
+        </Card>
+      ))}
+
+      {roundHead(TOURNEY_ROUNDS[1])}
+      {tbdMatch("Winner 1v8", "Winner 4v5", "sf1")}
+      {tbdMatch("Winner 2v7", "Winner 3v6", "sf2")}
+
+      {roundHead(TOURNEY_ROUNDS[2])}
+      {tbdMatch("Winner SF1", "Winner SF2", "f")}
+
+      {bubble.length > 0 && (
+        <>
+          <div style={{ marginTop: 18 }}><Eyebrow>On the bubble</Eyebrow></div>
+          <Card style={{ padding: 0 }}>
+            {bubble.map((p, i) => {
+              const out = i + 1; // spots below the last qualifying spot (9th = 1, 10th = 2)
+              const isMe = meP && p.id === meP.id;
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => onPlayer(p)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "12px 12px",
+                    borderBottom: i === bubble.length - 1 ? "none" : `1px solid ${C.faint}`, cursor: "pointer",
+                    background: isMe ? "rgba(216,245,41,0.07)" : "transparent",
+                    borderLeft: isMe ? `3px solid ${C.ball}` : "3px solid transparent",
+                  }}
+                >
+                  <div style={{ fontFamily: MONO, fontWeight: 700, fontSize: 18, color: C.ball, width: 34, textAlign: "right" }}>{p.rank}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: C.line, fontSize: 15, fontWeight: isMe ? 700 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {p.name}{isMe ? " (you)" : ""}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.mute, fontFamily: MONO, marginTop: 2 }}>
+                      {out} spot{out === 1 ? "" : "s"} from qualifying
+                    </div>
+                  </div>
+                  <div style={{ fontFamily: MONO, fontSize: 10, color: C.ball, border: `1px solid rgba(216,245,41,0.4)`, borderRadius: 3, padding: "2px 7px" }}>
+                    ON THE BUBBLE
+                  </div>
+                </div>
+              );
+            })}
+          </Card>
+        </>
+      )}
+    </>
+  );
+}
+
 // ---- MAIN APP ----
 function App() {
   const [session, setSession] = useState(null);
@@ -736,6 +893,7 @@ function App() {
   const tabs = [
     ["ladder", "Ladder"],
     ["matches", `Matches${myOpen.length ? ` (${myOpen.length})` : ""}`],
+    ["tournament", "Tourney"],
     ["stats", "Stats"],
     ["rules", "Rules"],
     ...(meP?.is_admin ? [["admin", "Admin"]] : []),
@@ -1014,6 +1172,11 @@ function App() {
               </div>
             </Card>
           </>
+        )}
+
+        {/* TOURNAMENT */}
+        {!loading && !reportPlayer && tab === "tournament" && (
+          <TournamentTab players={players} meP={meP} onPlayer={setReportPlayer} />
         )}
 
         {/* ADMIN */}
