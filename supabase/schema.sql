@@ -137,6 +137,12 @@ alter table challenges add constraint challenges_winner_id_fkey FOREIGN KEY (win
 create unique index if not exists legacy_matches_dedup
   on public.legacy_matches using btree (player_name, opponent_name, played_on, score);
 
+-- One open match per pair of players, in either direction, wildcards included.
+-- Backstop for the double-tap race in issue_challenge (count-then-insert).
+create unique index if not exists challenges_one_open_per_pair
+  on public.challenges (least(challenger_id, opponent_id), greatest(challenger_id, opponent_id))
+  where status in ('pending', 'accepted', 'reported');
+
 -- One pending application per email address. api/join.js relies on the 23505
 -- this throws to tell an applicant they've already applied.
 create unique index if not exists join_requests_pending_email
@@ -233,9 +239,14 @@ begin
   if n >= coalesce(s.max_incoming_challenges, 1) then
     raise exception '% already has an open challenge — wait until it wraps up', o.name;
   end if;
-  insert into challenges (challenger_id, opponent_id, accept_by)
-    values (c.id, o.id, now() + make_interval(days => s.accept_days))
-    returning id into cid;
+  begin
+    insert into challenges (challenger_id, opponent_id, accept_by)
+      values (c.id, o.id, now() + make_interval(days => s.accept_days))
+      returning id into cid;
+  exception when unique_violation then
+    -- challenges_one_open_per_pair caught a simultaneous duplicate (double-tap)
+    raise exception 'There is already an open challenge between you two';
+  end;
   update players set last_activity = now() where id = c.id;
   return cid;
 end $function$
@@ -532,22 +543,25 @@ begin
   -- lower-ranked player (bigger rank number) is the challenger
   if a.rank > b.rank then lo := a; hi := b; else lo := b; hi := a; end if;
 
-  -- one open wildcard per pair at a time
+  -- one open match per pair at a time (wildcard OR regular challenge)
   if exists (
     select 1 from challenges
-    where coalesce(is_wildcard, false)
-      and status in ('pending', 'accepted', 'reported')
+    where status in ('pending', 'accepted', 'reported')
       and ((challenger_id = lo.id and opponent_id = hi.id)
         or (challenger_id = hi.id and opponent_id = lo.id))
   ) then
-    raise exception 'There is already an open wildcard match between these two';
+    raise exception 'These two already have an open match';
   end if;
 
   d := greatest(1, coalesce(p_play_days, s.play_days));
 
-  insert into challenges (challenger_id, opponent_id, status, accept_by, play_by, is_wildcard)
-    values (lo.id, hi.id, 'accepted', now(), now() + make_interval(days => d), true)
-    returning id into cid;
+  begin
+    insert into challenges (challenger_id, opponent_id, status, accept_by, play_by, is_wildcard)
+      values (lo.id, hi.id, 'accepted', now(), now() + make_interval(days => d), true)
+      returning id into cid;
+  exception when unique_violation then
+    raise exception 'These two already have an open match';
+  end;
 
   update players set last_activity = now() where id in (lo.id, hi.id);
 
