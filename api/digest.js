@@ -89,6 +89,16 @@ export default async function handler(req, res) {
   };
 
   try {
+    // Run housekeeping first. The digest cron fires before the tick cron, so
+    // without this, challenges that expired overnight still show as pending.
+    try {
+      await fetch(`${SB}/rest/v1/rpc/tick`, {
+        method: "POST",
+        headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" },
+        body: "{}",
+      });
+    } catch (_) { /* best-effort; the digest still goes out */ }
+
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
 
     // Matches reported in the last 24h (reported or already auto-completed)
@@ -119,10 +129,25 @@ export default async function handler(req, res) {
       })
       .join("");
 
+    // Short ET date, e.g. "Oct 3".
+    const shortET = (d) =>
+      new Date(d).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+    // The date that matters next: accept-by while waiting on a reply, play-by once accepted.
+    const deadlineOf = (ch) => (ch.status === "pending" ? ch.accept_by : ch.play_by) || ch.created_at;
+    const statusOf = (ch) => {
+      if (ch.is_wildcard) return `Wildcard &middot; play by ${shortET(ch.play_by)}`;
+      if (ch.status === "pending") return `Sent ${shortET(ch.created_at)} &middot; accept by ${shortET(ch.accept_by)}`;
+      return `Sent ${shortET(ch.created_at)} &middot; play by ${shortET(ch.play_by)}`;
+    };
+    const muted = 'style="padding:6px 0;font-family:Arial,sans-serif;font-size:13px;color:#5a6b64"';
+
+    // Soonest deadline first, so the matches about to expire sit at the top.
     const pendingRows = (Array.isArray(pending) ? pending : [])
+      .slice()
+      .sort((a, b) => new Date(deadlineOf(a)) - new Date(deadlineOf(b)))
       .map(
         (ch) =>
-          `<tr><td ${cell}>${LADDER}</td><td ${cell}>${nameOf(ch.challenger_id)}</td><td ${cell}>vs.</td><td ${cell}>${nameOf(ch.opponent_id)}</td></tr>`
+          `<tr><td ${cell}>${nameOf(ch.challenger_id)} vs. ${nameOf(ch.opponent_id)}</td><td ${muted}>${statusOf(ch)}</td></tr>`
       )
       .join("");
 
