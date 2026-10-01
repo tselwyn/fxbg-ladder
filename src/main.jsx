@@ -664,7 +664,13 @@ function App() {
     }
   }
 
+  // In-flight guard: a double-tap used to fire two issue_challenge calls that
+  // both passed the server's count check and inserted twice. The DB now has a
+  // unique index as the real backstop; this just stops the second request.
+  const [sending, setSending] = useState(false);
   async function doChallenge() {
+    if (sending) return;
+    setSending(true);
     try {
       const cid = await rpc("issue_challenge", { p_opponent: target.id });
       notify("issued", cid);
@@ -672,6 +678,7 @@ function App() {
       setTarget(null);
       loadAll();
     } catch (e) { say(e.message, true); }
+    finally { setSending(false); }
   }
 
   async function act(kind, ch) {
@@ -1100,7 +1107,7 @@ function App() {
               Once accepted you'll see each other's contact info and have {settings?.play_days} days to play and report.
               Win and you take #{target.rank}.
             </div>
-            <Btn onClick={doChallenge}>Send challenge</Btn>
+            <Btn onClick={doChallenge} disabled={sending}>{sending ? "Sending..." : "Send challenge"}</Btn>
           </>
         )}
       </Sheet>
