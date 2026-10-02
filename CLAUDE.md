@@ -73,8 +73,12 @@ Rules (decided with Matt, Oct 2026):
   for either player, or swap someone in). No arbiter.
 - Admins can do everything: swap players, enter/edit/clear any score, walkovers, extend deadlines.
   Changing an old result clears any later match it affected.
-- Tournament results do NOT move ladder ranks; they DO count as activity for decay.
+- Tournament results do NOT move ladder ranks during the season; they DO count as activity for decay.
   A temp drop from the ladder doesn't remove anyone from the tournament.
+- **New year reset (Jan 1, 2027):** the 8 tournament players take ladder spots #1–8 by finish:
+  champion #1, runner-up #2, SF losers #3–4 (higher seed first), QF losers #5–8 (by seed).
+  Everyone else keeps their relative order below them. Done by an admin (Rank button, or a
+  one-tap tool if one gets built).
 - Ladder stays open during the tournament with no restrictions.
 - Emails: "you qualified" to the 8 when the bracket locks; result to both players (admins bcc);
   "your match is set" when the next round's opponent is known; "N days left" reminder at 3 days;
