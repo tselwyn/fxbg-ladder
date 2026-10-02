@@ -95,7 +95,7 @@ How it's built:
   after the cutoff (so it's exact without a cron). If nothing changed, lock uses the current ladder.
 - RPCs: `tourney_report_score`, `admin_tourney_lock/unlock/set_result/clear_result/set_player/extend`,
   `admin_tourney_create_test/delete_test`. `tourney_propagate` moves winners up the bracket (internal).
-- UI: `TournamentTab` in `src/main.jsx`. Admin controls are on the Tourney tab (Manage on each match).
+- UI: `TournamentTab` in `src/main.jsx`. Admin controls are on the Tournament tab (Manage on each match).
 - Emails: `api/tourney.js` (app-triggered, idempotent via *_emailed_at stamps), `api/tick.js`
   (reminders + expiry alerts), `api/digest.js` (bracket section). Shared code in `lib/tourney.js`.
 - Test tournaments (`is_test`): admin-only, can lock immediately, every email goes to admins only.

@@ -1320,7 +1320,7 @@ function App() {
   const tabs = [
     ["ladder", "Ladder"],
     ["matches", `Matches${myOpen.length ? ` (${myOpen.length})` : ""}`],
-    ["tournament", "Tourney"],
+    ["tournament", "Tournament"],
     ["stats", "Stats"],
     ["rules", "Rules"],
     ...(meP?.is_admin ? [["admin", "Admin"]] : []),
