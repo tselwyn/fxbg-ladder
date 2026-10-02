@@ -1,5 +1,8 @@
 // Daily results digest. Vercel cron hits this once a day (see vercel.json).
-// Sends ONLY if at least one match was reported in the last 24 hours.
+// Sends ONLY if something happened in the last 24 hours: a ladder match was
+// reported, or (during the tournament) the bracket was locked or a tournament
+// result came in. While a tournament is running, every digest that does go
+// out carries the full bracket: results so far and the matchups still to play.
 // Recipients: every active player with an email and daily_emails = true.
 // Each email carries a per-player unsubscribe link (players.email_token).
 //
@@ -7,6 +10,8 @@
 // "Authorization: Bearer <CRON_SECRET>". Vercel sends this automatically
 // for cron invocations when the env var exists. Without it, anyone who
 // finds the URL could make the app spam the roster.
+
+import { tourneySectionHtml } from "../lib/tourney.js";
 
 export default async function handler(req, res) {
   const SB = process.env.SUPABASE_URL;
@@ -105,8 +110,27 @@ export default async function handler(req, res) {
     const completed = await sbFetch(
       `challenges?status=in.(reported,completed)&reported_at=gte.${since}&select=*&order=reported_at.asc`
     );
-    if (!Array.isArray(completed) || completed.length === 0) {
-      return res.status(200).json({ skipped: "no matches completed today" });
+    const ladderCount = Array.isArray(completed) ? completed.length : 0;
+
+    // The live tournament (never a test one), plus the day it finishes.
+    const [tourney] = await sbFetch(
+      `tournaments?is_test=eq.false&status=in.(locked,complete)&select=*&order=created_at.desc&limit=1`
+    ).then((r) => (Array.isArray(r) ? r : []));
+    const after = (d) => d && new Date(d) >= new Date(since);
+    let tMatches = [];
+    let showTourney = false;
+    let tourneyNews = false;
+    let justLocked = false;
+    if (tourney && (tourney.status === "locked" || after(tourney.completed_at))) {
+      tMatches = await sbFetch(`tournament_matches?tournament_id=eq.${tourney.id}&select=*&order=round,slot`);
+      if (!Array.isArray(tMatches)) tMatches = [];
+      showTourney = true;
+      justLocked = after(tourney.locked_at);
+      tourneyNews = justLocked || after(tourney.completed_at) || tMatches.some((m) => after(m.reported_at));
+    }
+
+    if (ladderCount === 0 && !tourneyNews) {
+      return res.status(200).json({ skipped: "nothing new today" });
     }
 
     // Open challenges (issued or accepted, not yet played)
@@ -121,7 +145,7 @@ export default async function handler(req, res) {
     const LADDER = "FXBG Singles Tennis";
     const cell = 'style="padding:6px 14px 6px 0;font-family:Arial,sans-serif;font-size:14px;color:#0F2E25"';
 
-    const resultRows = completed
+    const resultRows = (ladderCount ? completed : [])
       .map((ch) => {
         const loserId = ch.winner_id === ch.challenger_id ? ch.opponent_id : ch.challenger_id;
         const score = ch.score && ch.score !== "n/a" ? ch.score : "";
@@ -151,7 +175,10 @@ export default async function handler(req, res) {
       )
       .join("");
 
-    const lastReported = completed[completed.length - 1]?.reported_at;
+    const lastReported = ladderCount ? completed[ladderCount - 1]?.reported_at : null;
+    const tourneyHtml = showTourney
+      ? tourneySectionHtml({ t: tourney, matches: tMatches, byId, since })
+      : "";
     const dateStr = new Date(lastReported || Date.now()).toLocaleDateString("en-US", {
       timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric",
     });
@@ -163,7 +190,8 @@ export default async function handler(req, res) {
           <h2 style="margin:6px 0 0;color:#D8F529;font-family:Arial,sans-serif">Recent Match Results — FXBG Singles Tennis</h2>
         </div>
         <p style="margin:-8px 0 16px;color:#5a6b64">${dateStr}</p>
-        <table cellpadding="0" cellspacing="0">${resultRows}</table>
+        ${resultRows ? `<table cellpadding="0" cellspacing="0">${resultRows}</table>` : ""}
+        ${tourneyHtml}
         ${pendingRows ? `<h3 style="margin:24px 0 8px">Pending Challenges</h3>
         <table cellpadding="0" cellspacing="0">${pendingRows}</table>` : ""}
         <p style="margin:28px 0"><a href="${SITE}" style="background:#D8F529;color:#0F2E25;padding:12px 20px;border-radius:4px;text-decoration:none;font-weight:bold">Open the ladder</a></p>
@@ -176,7 +204,11 @@ export default async function handler(req, res) {
     if (recipients.length === 0) return res.status(200).json({ skipped: "no recipients" });
 
     const fromAddr = FROM.includes("<") ? FROM.match(/<([^>]+)>/)[1] : FROM;
-    const subject = `Recent Match Results — FXBG Singles Tennis (${completed.length} match${completed.length === 1 ? "" : "es"})`;
+    const subject = ladderCount
+      ? `Recent Match Results — FXBG Singles Tennis (${ladderCount} match${ladderCount === 1 ? "" : "es"})`
+      : justLocked
+        ? `The bracket is set — ${tourney.name}`
+        : `Tournament update — FXBG Singles Tennis`;
 
     // Resend batch endpoint: up to 100 emails per call
     const batch = recipients.map((p) => ({
@@ -192,7 +224,7 @@ export default async function handler(req, res) {
       body: JSON.stringify(batch),
     });
     const out = await r.json();
-    return res.status(200).json({ sent: recipients.length, matches: completed.length, resend: r.ok, out });
+    return res.status(200).json({ sent: recipients.length, matches: ladderCount, tourney: showTourney, resend: r.ok, out });
   } catch (e) {
     return res.status(200).json({ error: String(e) });
   }

@@ -59,20 +59,43 @@ this every day — treat production with care.
   (challenges, scores) happen for real.
 - `api/` functions and crons only run on Vercel.
 
-## Current project: end-of-season tournament (Oct 2026)
+## Current project: 2026 Fredericksburg Ladder Tournament
 
-- Top 8 on the ladder at the cutoff (Sun Oct 11) qualify; Matt locks the bracket in Admin
-- Seeds 1v8, 4v5, 2v7, 3v6. Best of 3, full third set.
-- 10 days per round: QF Oct 12–21, SF Oct 22–31, Final Nov 1–10
-- Unplayed by deadline: the responsive player advances (Matt decides via walkover tool)
-- Tournament results do NOT move ladder ranks; they DO count as activity for decay
-- Ladder stays open during the tournament; no restrictions on tournament players
-- Data model: `tournaments` + `tournament_matches` tables, built to support many tournaments
-- Build first (before Oct 11): Tournament tab with projected bracket from current top 8,
-  countdown to cutoff, "on the bubble" tags for ranks 9–10
-- Then (before Oct 12): lock bracket, your-match card, score report/confirm, auto-advance,
-  admin walkover/extend/override/replace, round-start + deadline emails
-- Later: tournament history, champion badge
+Rules (decided with Matt, Oct 2026):
+- Top 8 on the ladder at the cutoff, **Sun Oct 18 11:59 PM ET**, qualify. Scores reported after
+  the cutoff don't count toward seeding. An admin (Tyler or Matt) locks the bracket after that.
+- Seeds 1v8, 4v5 (top half), 2v7, 3v6. Best 2 of 3 full sets, normal tiebreak at 6-6 in every set.
+  No 10-point match tiebreak in place of a third set.
+- QF Oct 20 – Nov 2 (14 days), SF Nov 3–12 (10 days), Final Nov 13–22 (10 days). Done before Thanksgiving.
+  Every deadline is 11:59 PM ET.
+- Either player reports the score; final immediately, the winner advances automatically.
+- Unplayed by the deadline: nothing automatic. Admins get an email and decide (extend, walkover
+  for either player, or swap someone in). No arbiter.
+- Admins can do everything: swap players, enter/edit/clear any score, walkovers, extend deadlines.
+  Changing an old result clears any later match it affected.
+- Tournament results do NOT move ladder ranks; they DO count as activity for decay.
+  A temp drop from the ladder doesn't remove anyone from the tournament.
+- Ladder stays open during the tournament with no restrictions.
+- Emails: "you qualified" to the 8 when the bracket locks; result to both players (admins bcc);
+  "your match is set" when the next round's opponent is known; "N days left" reminder at 3 days;
+  admins alerted when a match passes its deadline. No email when a deadline is extended.
+  Tournament emails ignore the daily-email opt-out (they're about the player's own match).
+  The daily results email carries the bracket while the tournament runs and sends on days with
+  a ladder OR tournament result (or the day the bracket locks).
+- Later: champion badge next to the winner's name.
+
+How it's built:
+- Tables `tournaments` + `tournament_matches` (migration `supabase/migrations/2026-10-02-tournaments.sql`).
+  The 2026 tournament row is inserted by that migration.
+- Seeds come from `tournaments.seeds_snapshot`, saved by a trigger the first time any rank changes
+  after the cutoff (so it's exact without a cron). If nothing changed, lock uses the current ladder.
+- RPCs: `tourney_report_score`, `admin_tourney_lock/unlock/set_result/clear_result/set_player/extend`,
+  `admin_tourney_create_test/delete_test`. `tourney_propagate` moves winners up the bracket (internal).
+- UI: `TournamentTab` in `src/main.jsx`. Admin controls are on the Tourney tab (Manage on each match).
+- Emails: `api/tourney.js` (app-triggered, idempotent via *_emailed_at stamps), `api/tick.js`
+  (reminders + expiry alerts), `api/digest.js` (bracket section). Shared code in `lib/tourney.js`.
+- Test tournaments (`is_test`): admin-only, can lock immediately, every email goes to admins only.
+  Delete them before the real one locks.
 
 ## Winter soft freeze (Nov 1 – Dec 31)
 

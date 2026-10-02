@@ -366,18 +366,37 @@ function ChallengeCard({ ch, meP, byId, act, logsByName, nPlayers }) {
   );
 }
 
-// ---- TOURNAMENT (phase 1: projected bracket, frontend only) ----
-// Hardcoded for the Oct 2026 end-of-season tournament. ET is still on
-// daylight time on Oct 11 (DST ends Nov 1), so 11:59 PM ET = -04:00.
-const TOURNEY_CUTOFF = new Date("2026-10-11T23:59:00-04:00");
-const TOURNEY_SIZE = 8;
+// ---- TOURNAMENT ----
+// Data lives in the tournaments + tournament_matches tables (see
+// supabase/migrations/2026-10-02-tournaments.sql). Before the bracket locks,
+// the tab shows a projection from the live ladder; after the cutoff it shows
+// the seeds saved at the cutoff. Tournament results never move ladder ranks.
 // Bracket order, top half first: 1v8 + 4v5 meet in one semi, 2v7 + 3v6 in the other.
 const TOURNEY_QF = [[1, 8], [4, 5], [2, 7], [3, 6]];
-const TOURNEY_ROUNDS = [
-  ["Quarterfinals", "Oct 12–21"],
-  ["Semifinals", "Oct 22–31"],
-  ["Final", "Nov 1–10"],
-];
+const TOURNEY_ROUND_NAMES = ["Quarterfinal", "Semifinal", "Final"];
+const TOURNEY_FORMAT =
+  "Best 2 of 3 full sets, with a normal tiebreak at 6-6 in every set. No 10-point tiebreak in place of a third set.";
+
+const fmtET = (d, opts) => new Date(d).toLocaleString("en-US", { timeZone: "America/New_York", ...opts });
+const etDay = (d) => fmtET(d, { weekday: "short", month: "short", day: "numeric" }).replace(",", "");
+const etYmd = (d) => new Date(d).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+// 11:59 PM ET on a YYYY-MM-DD date. ET is -04:00 or -05:00 depending on DST.
+function etEndOfDay(ymd) {
+  for (const off of ["-04:00", "-05:00"]) {
+    const d = new Date(`${ymd}T23:59:00${off}`);
+    if (fmtET(d, { hour: "numeric", hour12: false }) === "23") return d;
+  }
+  return new Date(`${ymd}T23:59:00-05:00`);
+}
+
+function notifyTourney(type, body) {
+  // fire-and-forget; email failures never block the bracket
+  fetch("/api/tourney", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, ...body }),
+  }).catch(() => {});
+}
 
 function Countdown({ to }) {
   const [now, setNow] = useState(Date.now());
@@ -414,39 +433,147 @@ function Countdown({ to }) {
   );
 }
 
-function BracketSlot({ seed, p, meP, onPlayer, last }) {
+// won: true = this player won the match, false = lost, undefined = no result yet
+function BracketSlot({ seed, p, meP, onPlayer, last, won }) {
   const isMe = meP && p && p.id === meP.id;
   return (
     <div
-      onClick={p ? () => onPlayer(p) : undefined}
+      onClick={p && p.rank ? () => onPlayer(p) : undefined}
       style={{
         display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
         borderBottom: last ? "none" : `1px solid ${C.faint}`,
-        cursor: p ? "pointer" : "default",
+        cursor: p && p.rank ? "pointer" : "default",
         background: isMe ? "rgba(216,245,41,0.07)" : "transparent",
         borderLeft: isMe ? `3px solid ${C.ball}` : "3px solid transparent",
       }}
     >
-      <div style={{ fontFamily: MONO, fontSize: 10, color: C.mute, width: 18, textAlign: "right" }}>{seed}</div>
-      <div style={{ flex: 1, minWidth: 0, color: p ? C.line : C.mute, fontSize: 15, fontWeight: isMe ? 700 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+      <div style={{ fontFamily: MONO, fontSize: 10, color: C.mute, width: 18, textAlign: "right" }}>{seed || ""}</div>
+      <div style={{
+        flex: 1, minWidth: 0, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        color: !p ? C.mute : won === true ? C.ball : won === false ? C.mute : C.line,
+        fontWeight: won === true || isMe ? 700 : 400,
+      }}>
         {p ? `${p.name}${isMe ? " (you)" : ""}` : "TBD"}
       </div>
-      {p && <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute }}>#{p.rank}</div>}
+      {won === true && <div style={{ fontFamily: MONO, fontSize: 12, color: C.ball }}>✓</div>}
+      {p && p.rank && p.active !== false && won === undefined && <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute }}>#{p.rank}</div>}
     </div>
   );
 }
 
-function TournamentTab({ players, meP, onPlayer }) {
+function TournamentTab({ players, dropped, allNames, meP, onPlayer, tournaments, matches, say, reload }) {
+  const isAdmin = !!meP?.is_admin;
+  const visible = tournaments.filter((t) => isAdmin || !t.is_test);
+  const [selId, setSelId] = useState(null);
+  const [reporting, setReporting] = useState(null); // match being scored by a player
+  const [managing, setManaging] = useState(null);   // match open in the admin sheet
+  const [busy, setBusy] = useState(false);
+  const t = visible.find((x) => x.id === selId) || visible.find((x) => !x.is_test) || visible[0];
+
+  // Wraps every RPC: one at a time, toast on error, reload after.
+  async function run(fn) {
+    if (busy) return false;
+    setBusy(true);
+    try { await fn(); await reload(); return true; }
+    catch (e) { say(e.message, true); return false; }
+    finally { setBusy(false); }
+  }
+
+  async function createTest() {
+    let id;
+    const ok = await run(async () => { id = await rpc("admin_tourney_create_test"); });
+    if (ok) { setSelId(id); say("Test tournament created. Only admins can see it."); }
+  }
+
+  if (!t) {
+    return (
+      <>
+        <Eyebrow>Tournament</Eyebrow>
+        <Card><div style={{ color: C.mute, fontSize: 14 }}>No tournament scheduled right now.</div></Card>
+        {isAdmin && <div style={{ marginTop: 12 }}><Btn small kind="ghost" onClick={createTest}>New test tournament</Btn></div>}
+      </>
+    );
+  }
+
+  const tm = matches.filter((m) => m.tournament_id === t.id);
+  const at = (r, s) => tm.find((m) => m.round === r && m.slot === s);
+  const rounds = t.rounds || [];
+  const pastCutoff = Date.now() >= new Date(t.cutoff_at).getTime();
+  const draft = t.status === "draft";
+
+  // Any player id -> something BracketSlot can show. Players off the ladder
+  // still show by name; they just can't be tapped for a report.
+  const everyone = [...players, ...dropped];
+  const lookup = (id, fallbackName) => {
+    if (!id) return null;
+    return everyone.find((p) => p.id === id) ||
+      { id, name: allNames?.get(id) || fallbackName || "Unknown" };
+  };
+  const seedOf = new Map();
+  for (const m of tm.filter((x) => x.round === 1)) {
+    if (m.player_a) seedOf.set(m.player_a, m.seed_a);
+    if (m.player_b) seedOf.set(m.player_b, m.seed_b);
+  }
+
+  // Seeds while in draft: the cutoff snapshot once it exists, otherwise the live ladder.
   const ranked = [...players].sort((a, b) => a.rank - b.rank);
-  const seeds = ranked.slice(0, TOURNEY_SIZE); // seeds[0] = 1 seed
-  const bubble = ranked.slice(TOURNEY_SIZE, TOURNEY_SIZE + 2);
-  const roundHead = ([name, dates]) => (
+  const seedList = draft && pastCutoff && t.seeds_snapshot
+    ? t.seeds_snapshot.map((s) => ({ ...lookup(s.id, s.name), rank: s.rank }))
+    : ranked.slice(0, t.size + 2);
+  const seeds = seedList.slice(0, t.size);
+  const bubble = seedList.slice(t.size, t.size + 2);
+
+  const roundHead = (i) => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "18px 0 10px" }}>
-      <div style={{ fontSize: 11, letterSpacing: 3, textTransform: "uppercase", color: C.mute, fontFamily: MONO }}>{name}</div>
-      <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute }}>{dates}</div>
+      <div style={{ fontSize: 11, letterSpacing: 3, textTransform: "uppercase", color: C.mute, fontFamily: MONO }}>
+        {rounds[i]?.name || `${TOURNEY_ROUND_NAMES[i]}s`}
+      </div>
+      {rounds[i] && (
+        <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute }}>
+          {fmtET(rounds[i].starts, { month: "short", day: "numeric" })}–{fmtET(rounds[i].ends, { month: "short", day: "numeric" })}
+        </div>
+      )}
     </div>
   );
-  const tbdMatch = (a, b, key) => (
+
+  const isOpen = (m) => m && m.player_a && m.player_b && !m.winner_id;
+  const inMatch = (m) => meP && m && (m.player_a === meP.id || m.player_b === meP.id);
+  const myMatch = t.status === "locked" ? tm.find((m) => isOpen(m) && inMatch(m)) : null;
+
+  function matchStatus(m) {
+    if (m.winner_id) {
+      if (m.result_type === "walkover") return { text: "Walkover", col: C.mute };
+      return { text: m.score && m.score !== "n/a" ? m.score : "Final", col: C.line };
+    }
+    if (m.player_a && m.player_b && m.play_by) {
+      const left = new Date(m.play_by) - Date.now();
+      if (left <= 0) return { text: `Past deadline (${etDay(m.play_by)}) · admin deciding`, col: C.red };
+      return { text: `Play by ${etDay(m.play_by)} · ${daysLeft(m.play_by)}d left`, col: C.mute };
+    }
+    return { text: "Waiting on the earlier round", col: C.mute };
+  }
+
+  const MatchCard = ({ m, gapAfter }) => {
+    const st = matchStatus(m);
+    const won = (id) => (m.winner_id ? m.winner_id === id : undefined);
+    return (
+      <Card style={{ padding: 0, marginBottom: gapAfter ? 16 : 8 }}>
+        <BracketSlot seed={seedOf.get(m.player_a)} p={lookup(m.player_a)} meP={meP} onPlayer={onPlayer} won={m.player_a ? won(m.player_a) : undefined} />
+        <BracketSlot seed={seedOf.get(m.player_b)} p={lookup(m.player_b)} meP={meP} onPlayer={onPlayer} won={m.player_b ? won(m.player_b) : undefined} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px" }}>
+          <div style={{ flex: 1, fontFamily: MONO, fontSize: 11, color: st.col }}>{st.text}</div>
+          {t.status === "locked" && isOpen(m) && inMatch(m) && (
+            <Btn small onClick={() => setReporting(m)}>Report score</Btn>
+          )}
+          {isAdmin && t.status !== "draft" && (
+            <Btn small kind="ghost" onClick={() => setManaging(m)}>Manage</Btn>
+          )}
+        </div>
+      </Card>
+    );
+  };
+
+  const placeholder = (a, b, key) => (
     <Card key={key} style={{ padding: "10px 14px", marginBottom: 8 }}>
       <div style={{ fontFamily: MONO, fontSize: 12, color: C.mute }}>
         {a} <span style={{ color: C.faint }}>vs</span> {b}
@@ -454,36 +581,108 @@ function TournamentTab({ players, meP, onPlayer }) {
     </Card>
   );
 
+  const champ = t.champion_id ? lookup(t.champion_id) : null;
+
   return (
     <>
-      <Eyebrow>End-of-season tournament</Eyebrow>
-      <Card style={{ marginBottom: 6, border: `1px solid ${C.ball}` }}>
-        <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: 2, color: C.ball, textTransform: "uppercase", marginBottom: 10 }}>
-          Projected — bracket locks Sun Oct 11
+      {isAdmin && visible.length > 1 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {visible.map((x) => (
+            <button key={x.id} onClick={() => setSelId(x.id)}
+              style={{ fontFamily: MONO, fontSize: 11, borderRadius: 3, padding: "5px 9px", cursor: "pointer",
+                background: x.id === t.id ? C.ball : "transparent", color: x.id === t.id ? C.clay : C.mute,
+                border: `1px solid ${x.id === t.id ? C.ball : C.faint}` }}>
+              {x.is_test ? `TEST · ${fmtET(x.created_at, { month: "short", day: "numeric" })}` : x.name}
+            </button>
+          ))}
         </div>
-        <Countdown to={TOURNEY_CUTOFF} />
-        <div style={{ fontSize: 12, color: C.mute, marginTop: 10, lineHeight: 1.5 }}>
-          Top {TOURNEY_SIZE} on the ladder at 11:59 PM ET Sun Oct 11 qualify. Best of 3, full third set.
-          Tournament results don't move ladder ranks.
-        </div>
-      </Card>
+      )}
 
-      {roundHead(TOURNEY_ROUNDS[0])}
-      {TOURNEY_QF.map(([hi, lo], i) => (
-        <Card key={hi} style={{ padding: 0, marginBottom: i === 1 ? 16 : 8 }}>
-          <BracketSlot seed={hi} p={seeds[hi - 1]} meP={meP} onPlayer={onPlayer} />
-          <BracketSlot seed={lo} p={seeds[lo - 1]} meP={meP} onPlayer={onPlayer} last />
+      {isAdmin && (
+        <TourneyAdminCard t={t} tm={tm} pastCutoff={pastCutoff} run={run} say={say}
+          onCreateTest={createTest} onDeleted={() => setSelId(null)} />
+      )}
+
+      <Eyebrow>{t.is_test ? "Test tournament" : t.name}</Eyebrow>
+
+      {draft && (
+        <Card style={{ marginBottom: 6, border: `1px solid ${C.ball}` }}>
+          <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: 2, color: C.ball, textTransform: "uppercase", marginBottom: 10 }}>
+            {pastCutoff ? "Final seeding — bracket locks soon" : `Projected — bracket locks ${etDay(t.cutoff_at)}`}
+          </div>
+          <Countdown to={new Date(t.cutoff_at)} />
+          <div style={{ fontSize: 12, color: C.mute, marginTop: 10, lineHeight: 1.5 }}>
+            Top {t.size} on the ladder at {fmtET(t.cutoff_at, { hour: "numeric", minute: "2-digit" })} ET {etDay(t.cutoff_at)} qualify.
+            Scores reported after that don't count toward seeding. {TOURNEY_FORMAT} Tournament results don't move ladder ranks.
+          </div>
         </Card>
-      ))}
+      )}
 
-      {roundHead(TOURNEY_ROUNDS[1])}
-      {tbdMatch("Winner 1v8", "Winner 4v5", "sf1")}
-      {tbdMatch("Winner 2v7", "Winner 3v6", "sf2")}
+      {!draft && champ && (
+        <Card style={{ marginBottom: 12, border: `1px solid ${C.ball}`, textAlign: "center" }}>
+          <div style={{ fontSize: 30 }}>🏆</div>
+          <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: 2, color: C.ball, textTransform: "uppercase", marginTop: 4 }}>Champion</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: C.line, marginTop: 4 }}>{champ.name}</div>
+        </Card>
+      )}
 
-      {roundHead(TOURNEY_ROUNDS[2])}
-      {tbdMatch("Winner SF1", "Winner SF2", "f")}
+      {!draft && !champ && (
+        <Card style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 13, color: C.line, lineHeight: 1.55 }}>{TOURNEY_FORMAT}</div>
+          <div style={{ fontSize: 12, color: C.mute, marginTop: 6, lineHeight: 1.5 }}>
+            Either player reports the score. Can't get your match played by the deadline? Contact an admin.
+            Tournament results don't move ladder ranks.
+          </div>
+        </Card>
+      )}
 
-      {bubble.length > 0 && (
+      {myMatch && (() => {
+        const opp = lookup(myMatch.player_a === meP.id ? myMatch.player_b : myMatch.player_a);
+        const late = new Date(myMatch.play_by) <= Date.now();
+        return (
+          <Card style={{ marginBottom: 12, border: `1px solid ${C.ball}` }}>
+            <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: 2, color: C.ball, textTransform: "uppercase", marginBottom: 6 }}>
+              Your {TOURNEY_ROUND_NAMES[myMatch.round - 1]?.toLowerCase()}
+            </div>
+            <div style={{ color: C.line, fontWeight: 700, fontSize: 15 }}>
+              You <span style={{ color: C.mute, fontWeight: 400 }}>vs</span> {opp?.name}
+              {seedOf.get(opp?.id) ? <span style={{ color: C.mute, fontWeight: 400 }}> ({seedOf.get(opp.id)} seed)</span> : null}
+            </div>
+            <div style={{ fontFamily: MONO, fontSize: 11, color: late ? C.red : C.mute, marginTop: 4 }}>
+              {late ? `Past deadline (${etDay(myMatch.play_by)}). Contact an admin.` : `Play by ${etDay(myMatch.play_by)} (${daysLeft(myMatch.play_by)}d left)`}
+            </div>
+            {(opp?.phone || opp?.email) && (
+              <div style={{ fontSize: 12, color: C.line, marginTop: 8, fontFamily: MONO }}>
+                {opp.phone && <div>📞 <a href={`tel:${opp.phone}`} style={{ color: C.ball }}>{opp.phone}</a></div>}
+                {opp.email && <div>✉️ <a href={`mailto:${opp.email}`} style={{ color: C.ball }}>{opp.email}</a></div>}
+              </div>
+            )}
+            <div style={{ marginTop: 12 }}><Btn small onClick={() => setReporting(myMatch)}>Report score</Btn></div>
+          </Card>
+        );
+      })()}
+
+      {roundHead(0)}
+      {draft
+        ? TOURNEY_QF.map(([hi, lo], i) => (
+            <Card key={hi} style={{ padding: 0, marginBottom: i === 1 ? 16 : 8 }}>
+              <BracketSlot seed={hi} p={seeds[hi - 1]} meP={meP} onPlayer={onPlayer} />
+              <BracketSlot seed={lo} p={seeds[lo - 1]} meP={meP} onPlayer={onPlayer} last />
+            </Card>
+          ))
+        : [1, 2, 3, 4].map((s) => at(1, s) && <MatchCard key={s} m={at(1, s)} gapAfter={s === 2} />)}
+
+      {roundHead(1)}
+      {draft
+        ? [placeholder("Winner 1v8", "Winner 4v5", "sf1"), placeholder("Winner 2v7", "Winner 3v6", "sf2")]
+        : [1, 2].map((s) => at(2, s) && <MatchCard key={s} m={at(2, s)} />)}
+
+      {roundHead(2)}
+      {draft
+        ? placeholder("Winner SF1", "Winner SF2", "f")
+        : at(3, 1) && <MatchCard m={at(3, 1)} />}
+
+      {draft && bubble.length > 0 && (
         <>
           <div style={{ marginTop: 18 }}><Eyebrow>On the bubble</Eyebrow></div>
           <Card style={{ padding: 0 }}>
@@ -493,7 +692,7 @@ function TournamentTab({ players, meP, onPlayer }) {
               return (
                 <div
                   key={p.id}
-                  onClick={() => onPlayer(p)}
+                  onClick={p.rank ? () => onPlayer(p) : undefined}
                   style={{
                     display: "flex", alignItems: "center", gap: 10, padding: "12px 12px",
                     borderBottom: i === bubble.length - 1 ? "none" : `1px solid ${C.faint}`, cursor: "pointer",
@@ -519,7 +718,212 @@ function TournamentTab({ players, meP, onPlayer }) {
           </Card>
         </>
       )}
+
+      <TourneyReportSheet m={reporting} lookup={lookup} busy={busy} onClose={() => setReporting(null)}
+        onSubmit={async (winnerId, score) => {
+          const m = reporting;
+          const ok = await run(() => rpc("tourney_report_score", { p_match: m.id, p_winner: winnerId, p_score: score }));
+          if (ok) { notifyTourney("result", { matchId: m.id }); say("Score recorded — bracket updated"); setReporting(null); }
+        }} />
+
+      {isAdmin && (
+        <TourneyManageSheet m={managing && tm.find((x) => x.id === managing.id)} t={t} lookup={lookup}
+          everyone={everyone} players={players} dropped={dropped} run={run} say={say} busy={busy}
+          onClose={() => setManaging(null)} />
+      )}
     </>
+  );
+}
+
+function TourneyAdminCard({ t, tm, pastCutoff, run, say, onCreateTest, onDeleted }) {
+  const hasResults = tm.some((m) => m.winner_id);
+  const canLock = t.status === "draft" && (pastCutoff || t.is_test);
+
+  async function lock() {
+    if (!confirm(`Lock the bracket for ${t.is_test ? "this TEST tournament" : t.name}?\n\nSeeds come from the ladder at the cutoff. ${t.is_test ? "One sample congrats email goes to the admins." : "The 8 qualifiers get their congrats email right away."}`)) return;
+    const ok = await run(() => rpc("admin_tourney_lock", { p_id: t.id }));
+    if (ok) { notifyTourney("qualified", { tournamentId: t.id }); say("Bracket locked — congrats emails on the way"); }
+  }
+  async function unlock() {
+    if (!confirm("Unlock the bracket and go back to the projected view? The matchups are removed (they'll be rebuilt from the same seeds when you lock again).")) return;
+    if (await run(() => rpc("admin_tourney_unlock", { p_id: t.id }))) say("Bracket unlocked");
+  }
+  async function resendQualified() {
+    notifyTourney("qualified", { tournamentId: t.id });
+    say("Sending the congrats emails");
+  }
+  async function deleteTest() {
+    if (!confirm("Delete this test tournament and all its matches?")) return;
+    if (await run(() => rpc("admin_tourney_delete_test", { p_id: t.id }))) { onDeleted(); say("Test tournament deleted"); }
+  }
+
+  return (
+    <Card style={{ marginBottom: 14 }}>
+      <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: 2, color: C.ball, textTransform: "uppercase", marginBottom: 6 }}>
+        Admin{t.is_test ? " · test" : ""}
+      </div>
+      <div style={{ fontSize: 12, color: C.mute, fontFamily: MONO, lineHeight: 1.6, marginBottom: 10 }}>
+        Status: {t.status === "draft" ? "not locked" : t.status === "locked" ? "bracket locked" : "complete"}
+        <br />Cutoff: {etDay(t.cutoff_at)} {fmtET(t.cutoff_at, { hour: "numeric", minute: "2-digit" })} ET
+        {t.seeds_snapshot && t.snapshot_at && <><br />Seeds saved {etDay(t.snapshot_at)} {fmtET(t.snapshot_at, { hour: "numeric", minute: "2-digit" })} ET</>}
+        {t.is_test && <><br />Only admins see test tournaments. All their emails go to admins.</>}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {t.status === "draft" && <Btn small onClick={lock} disabled={!canLock}>Lock bracket</Btn>}
+        {t.status === "locked" && !t.qualified_emailed_at && <Btn small onClick={resendQualified}>Send congrats emails</Btn>}
+        {t.status === "locked" && !hasResults && <Btn small kind="ghost" onClick={unlock}>Unlock</Btn>}
+        {t.is_test
+          ? <Btn small kind="danger" onClick={deleteTest}>Delete test</Btn>
+          : <Btn small kind="ghost" onClick={onCreateTest}>New test tournament</Btn>}
+      </div>
+      {t.status === "draft" && !canLock && (
+        <div style={{ fontSize: 11, color: C.mute, marginTop: 8 }}>Lock opens after the cutoff.</div>
+      )}
+      {t.status !== "draft" && (
+        <div style={{ fontSize: 11, color: C.mute, marginTop: 8, lineHeight: 1.5 }}>
+          Tap <b>Manage</b> on any match to enter or change a score, record a walkover, extend the deadline, or swap a player.
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function TourneyReportSheet({ m, lookup, busy, onClose, onSubmit }) {
+  const [winnerId, setWinnerId] = useState(null);
+  const [score, setScore] = useState("");
+  useEffect(() => { setWinnerId(null); setScore(""); }, [m?.id]);
+  if (!m) return null;
+  const submit = () => {
+    const w = lookup(winnerId)?.name || "This player";
+    if (!confirm(`${w} won${score.trim() ? `, ${score.trim()}` : ""}? This is final — the bracket updates right away.`)) return;
+    onSubmit(winnerId, score.trim());
+  };
+  return (
+    <Sheet open onClose={onClose} title={`Report ${TOURNEY_ROUND_NAMES[m.round - 1]?.toLowerCase()}`}>
+      <div style={{ fontSize: 12, color: C.mute, fontFamily: MONO, marginBottom: 8, textTransform: "uppercase", letterSpacing: 2 }}>Who won?</div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {[m.player_a, m.player_b].map((pid) => (
+          <button key={pid} onClick={() => setWinnerId(pid)}
+            style={{ flex: 1, padding: "14px 8px", borderRadius: 4, cursor: "pointer", fontFamily: MONO, fontWeight: 700, fontSize: 14, background: winnerId === pid ? C.ball : "transparent", color: winnerId === pid ? C.clay : C.line, border: `2px solid ${winnerId === pid ? C.ball : C.faint}` }}>
+            {lookup(pid)?.name || "?"}
+          </button>
+        ))}
+      </div>
+      <Field label="Score (winner first)" value={score} onChange={setScore} placeholder="e.g. 6-4, 3-6, 7-6" />
+      <div style={{ fontSize: 12, color: C.mute, marginBottom: 14 }}>
+        Either player can report. The winner moves on right away. Entered it wrong? Contact an admin.
+      </div>
+      <Btn onClick={submit} disabled={!winnerId || busy}>{busy ? "Saving…" : "Submit score"}</Btn>
+    </Sheet>
+  );
+}
+
+function TourneyManageSheet({ m, t, lookup, players, dropped, run, say, busy, onClose }) {
+  const [winnerId, setWinnerId] = useState(null);
+  const [score, setScore] = useState("");
+  const [walkover, setWalkover] = useState(false);
+  const [deadline, setDeadline] = useState("");
+  const [pa, setPa] = useState("");
+  const [pb, setPb] = useState("");
+  useEffect(() => {
+    if (!m) return;
+    setWinnerId(m.winner_id); setScore(m.result_type === "walkover" ? "" : (m.score && m.score !== "n/a" ? m.score : ""));
+    setWalkover(m.result_type === "walkover");
+    setDeadline(m.play_by ? etYmd(m.play_by) : "");
+    setPa(m.player_a || ""); setPb(m.player_b || "");
+  }, [m?.id, m?.winner_id, m?.play_by, m?.player_a, m?.player_b]);
+  if (!m) return null;
+
+  const rn = TOURNEY_ROUND_NAMES[m.round - 1];
+  const both = m.player_a && m.player_b;
+  const options = [
+    ...[...players].sort((a, b) => a.rank - b.rank).map((p) => ({ value: p.id, label: `#${p.rank} ${p.name}` })),
+    ...dropped.map((p) => ({ value: p.id, label: `${p.name} (temp drop)` })),
+  ];
+  // Keep a player who is no longer on either list selectable, so the select shows them.
+  for (const id of [m.player_a, m.player_b]) {
+    if (id && !options.some((o) => o.value === id)) options.push({ value: id, label: lookup(id)?.name || "Unknown" });
+  }
+  const laterNote = m.round < 3 ? " If the winner already played their next match, that result is cleared too." : "";
+
+  async function saveResult() {
+    const w = lookup(winnerId)?.name;
+    const msg = walkover
+      ? `Record a walkover: ${w} advances?`
+      : `Record: ${w} won${score.trim() ? `, ${score.trim()}` : ""}?`;
+    if (!confirm(`${msg}${m.winner_id && m.winner_id !== winnerId ? laterNote : ""}`)) return;
+    const ok = await run(() => rpc("admin_tourney_set_result", { p_match: m.id, p_winner: winnerId, p_score: score.trim(), p_walkover: walkover }));
+    if (ok) { notifyTourney("result", { matchId: m.id }); say("Result saved"); onClose(); }
+  }
+  async function clearResult() {
+    if (!confirm(`Clear the result of this ${rn.toLowerCase()}?${laterNote}`)) return;
+    if (await run(() => rpc("admin_tourney_clear_result", { p_match: m.id }))) say("Result cleared");
+  }
+  async function saveDeadline() {
+    if (!deadline) return;
+    if (!confirm(`Set the deadline to 11:59 PM ET on ${etDay(etEndOfDay(deadline))}? Nobody is emailed. The 3-day reminder re-arms for the new date.`)) return;
+    if (await run(() => rpc("admin_tourney_extend", { p_match: m.id, p_play_by: etEndOfDay(deadline).toISOString() }))) say("Deadline updated");
+  }
+  async function savePlayers() {
+    const changes = [["a", m.player_a, pa], ["b", m.player_b, pb]].filter(([, cur, next]) => (cur || "") !== next);
+    if (!changes.length) return;
+    if (!confirm(`Save the new lineup for this ${rn.toLowerCase()}?${m.winner_id ? " Its result is cleared because the lineup changed." + laterNote : ""} Both players get a "your match is set" email.`)) return;
+    const ok = await run(async () => {
+      // Empty the changed spots first, so swapping the two players' sides works.
+      for (const [spot] of changes) await rpc("admin_tourney_set_player", { p_match: m.id, p_spot: spot, p_player: null });
+      for (const [spot, , next] of changes) {
+        if (next) await rpc("admin_tourney_set_player", { p_match: m.id, p_spot: spot, p_player: next });
+      }
+    });
+    if (ok) { notifyTourney("sweep", { tournamentId: t.id }); say("Lineup saved"); }
+  }
+
+  const label = { fontFamily: MONO, fontSize: 11, letterSpacing: 2, color: C.ball, textTransform: "uppercase", margin: "4px 0 10px" };
+  const section = { borderTop: `1px solid ${C.faint}`, paddingTop: 14, marginTop: 16 };
+
+  return (
+    <Sheet open onClose={onClose} title={`Manage ${rn.toLowerCase()}${m.round < 3 ? ` ${m.slot}` : ""}`}>
+      <div style={label}>Result</div>
+      {both ? (
+        <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            {[m.player_a, m.player_b].map((pid) => (
+              <button key={pid} onClick={() => setWinnerId(pid)}
+                style={{ flex: 1, padding: "12px 8px", borderRadius: 4, cursor: "pointer", fontFamily: MONO, fontWeight: 700, fontSize: 13, background: winnerId === pid ? C.ball : "transparent", color: winnerId === pid ? C.clay : C.line, border: `2px solid ${winnerId === pid ? C.ball : C.faint}` }}>
+                {lookup(pid)?.name}
+              </button>
+            ))}
+          </div>
+          <Field label="Score (winner first)" value={score} onChange={setScore} placeholder={walkover ? "optional" : "6-4, 3-6, 7-6"} />
+          <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, cursor: "pointer" }}>
+            <input type="checkbox" checked={walkover} onChange={(e) => setWalkover(e.target.checked)} />
+            <span style={{ fontSize: 13, color: C.line }}>Walkover (not played; the winner advances)</span>
+          </label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Btn small onClick={saveResult} disabled={!winnerId || busy}>Save result</Btn>
+            {m.winner_id && <Btn small kind="danger" onClick={clearResult} disabled={busy}>Clear result</Btn>}
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 13, color: C.mute }}>Needs both players before a result can be entered.</div>
+      )}
+
+      <div style={section}>
+        <div style={label}>Deadline</div>
+        <div style={{ fontSize: 12, color: C.mute, marginBottom: 8 }}>
+          Currently {m.play_by ? `${etDay(m.play_by)}, 11:59 PM ET` : "not set"}. Changing it emails nobody.
+        </div>
+        <Field label="New deadline (11:59 PM ET that day)" type="date" value={deadline} onChange={setDeadline} />
+        <Btn small kind="ghost" onClick={saveDeadline} disabled={!deadline || busy}>Set deadline</Btn>
+      </div>
+
+      <div style={section}>
+        <div style={label}>Players</div>
+        <SelectField label="Top spot" value={pa} onChange={setPa} options={options.filter((o) => o.value !== pb)} placeholder="Empty (TBD)" />
+        <SelectField label="Bottom spot" value={pb} onChange={setPb} options={options.filter((o) => o.value !== pa)} placeholder="Empty (TBD)" />
+        <Btn small kind="ghost" onClick={savePlayers} disabled={busy || ((m.player_a || "") === pa && (m.player_b || "") === pb)}>Save lineup</Btn>
+      </div>
+    </Sheet>
   );
 }
 
@@ -530,7 +934,15 @@ function App() {
   const [challenges, setChallenges] = useState([]);
   const [dropped, setDropped] = useState([]);
   const [settings, setSettings] = useState(null);
-  const [tab, setTab] = useState("ladder");
+  // ?tab=tournament (used by the tournament emails) opens straight to that tab.
+  const [tab, setTab] = useState(() => {
+    try {
+      const t = new URLSearchParams(window.location.search).get("tab");
+      return ["ladder", "matches", "tournament", "stats", "rules"].includes(t) ? t : "ladder";
+    } catch { return "ladder"; }
+  });
+  const [tournaments, setTournaments] = useState([]);
+  const [tMatches, setTMatches] = useState([]);
   const [legacyLogs, setLegacyLogs] = useState(null);   // frozen TennisRungs archive
   const [allNames, setAllNames] = useState(null);       // id -> name for every player row ever
   const [reportPlayer, setReportPlayer] = useState(null); // player whose report is open
@@ -611,16 +1023,20 @@ function App() {
 
   async function loadAll() {
     try { await supabase.rpc("tick"); } catch {}
-    const [p, d, c, s] = await Promise.all([
+    const [p, d, c, s, tt, tmm] = await Promise.all([
       supabase.from("players").select("*").eq("active", true).order("rank"),
       supabase.from("players").select("*").eq("dropped", true).order("name"),
       supabase.from("challenges").select("*").order("created_at", { ascending: false }),
       supabase.from("settings").select("*").eq("id", 1).single(),
+      supabase.from("tournaments").select("*").order("created_at", { ascending: false }),
+      supabase.from("tournament_matches").select("*").order("round").order("slot"),
     ]);
     if (p.data) setPlayers(p.data);
     if (d.data) setDropped(d.data);
     if (c.data) setChallenges(c.data);
     if (s.data) setSettings(s.data);
+    if (tt.data) setTournaments(tt.data);
+    if (tmm.data) setTMatches(tmm.data);
     setLoading(false);
   }
 
@@ -720,6 +1136,14 @@ function App() {
       .filter((d) => d && d.by)
       .sort((a, b) => new Date(a.by) - new Date(b.by));
   }, [meP, myOpen, byId]);
+
+  // My unplayed match in the live (non-test) tournament, for the ladder banner.
+  const myTourneyMatch = useMemo(() => {
+    if (!meP) return null;
+    const live = new Set(tournaments.filter((t) => t.status === "locked" && !t.is_test).map((t) => t.id));
+    return tMatches.find((m) => live.has(m.tournament_id) && m.player_a && m.player_b && !m.winner_id &&
+      (m.player_a === meP.id || m.player_b === meP.id)) || null;
+  }, [meP, tournaments, tMatches]);
 
   // Player report opens in-place over the ladder; the browser keeps the
   // page's scroll position unless we manage it. Scroll to top when a
@@ -984,6 +1408,26 @@ function App() {
                 </div>
               </Card>
             )}
+            {myTourneyMatch && (() => {
+              const m = myTourneyMatch;
+              const oppId = m.player_a === meP.id ? m.player_b : m.player_a;
+              const opp = players.find((p) => p.id === oppId) || dropped.find((p) => p.id === oppId);
+              const late = new Date(m.play_by) <= Date.now();
+              const col = late || daysLeft(m.play_by) <= 1 ? C.red : C.ball;
+              const rn = ["QF", "SF", "FINAL"][m.round - 1] || "MATCH";
+              return (
+                <div
+                  onClick={() => setTab("tournament")}
+                  style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${col}`, borderRadius: 8, padding: "10px 12px", marginBottom: 10, cursor: "pointer", background: "rgba(216,245,41,0.05)" }}
+                >
+                  <span style={{ fontSize: 14 }}>🏆</span>
+                  <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: col, letterSpacing: 1, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    TOURNAMENT {rn} · {late ? "PAST DEADLINE" : `PLAY BY ${etDay(m.play_by).replace(/^\w+ /, "").toUpperCase()}`}{opp ? ` · VS ${opp.name.toUpperCase()}` : ""}
+                  </span>
+                  <span style={{ fontFamily: MONO, fontSize: 12, color: col }}>→</span>
+                </div>
+              );
+            })()}
             {meP && !meP.dropped && myDeadlines.length > 0 && (() => {
               const d = myDeadlines[0];
               const dl = daysLeft(d.by);
@@ -1179,7 +1623,10 @@ function App() {
 
         {/* TOURNAMENT */}
         {!loading && !reportPlayer && tab === "tournament" && (
-          <TournamentTab players={players} meP={meP} onPlayer={setReportPlayer} />
+          <TournamentTab
+            players={players} dropped={dropped} allNames={allNames} meP={meP} onPlayer={setReportPlayer}
+            tournaments={tournaments} matches={tMatches} say={say} reload={loadAll}
+          />
         )}
 
         {/* ADMIN */}

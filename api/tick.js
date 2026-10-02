@@ -9,6 +9,12 @@
 //
 // Extra env vars needed for the reminder (same ones notify.js already uses):
 //   RESEND_API_KEY, EMAIL_FROM, SITE_URL
+//
+// It also sends the tournament emails that run on a clock: the "3 days left"
+// reminder for unplayed tournament matches, and an alert to admins when a
+// tournament match passes its deadline (nothing happens automatically then).
+
+import { makeSb, makeMailer, sendTourneyNotices } from "../lib/tourney.js";
 
 // How far ahead to look. The cron runs once a day, so a 24h window would let
 // matches whose deadline falls just before the next run slip through entirely.
@@ -154,5 +160,19 @@ export default async function handler(req, res) {
     reminders = { error: String(e) };
   }
 
-  return res.status(200).json({ ok, reminders });
+  let tournament;
+  try {
+    const RESEND = process.env.RESEND_API_KEY;
+    tournament = RESEND
+      ? await sendTourneyNotices({
+          sb: makeSb(SB, KEY),
+          send: makeMailer(RESEND, process.env.EMAIL_FROM || "FXBG Ladder <onboarding@resend.dev>"),
+          site: process.env.SITE_URL || "https://rallyladders.com",
+        })
+      : { skipped: "email not configured" };
+  } catch (e) {
+    tournament = { error: String(e) };
+  }
+
+  return res.status(200).json({ ok, reminders, tournament });
 }
