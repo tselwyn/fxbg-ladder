@@ -17,6 +17,9 @@ const SUPABASE_URL =
 const SUPABASE_ANON_KEY =
   import.meta.env.VITE_SUPABASE_ANON_KEY || "PASTE_YOUR_SUPABASE_ANON_KEY_HERE";
 // Same published Google Sheet Rally Report uses (roster import):
+// Donations: Tyler's Venmo. Profile link opens the Venmo app on phones.
+const VENMO_USER = "Tyler-Selwyn";
+const VENMO_URL = `https://venmo.com/u/${VENMO_USER}`;
 const ROSTER_CSV_URL =
   "https://docs.google.com/spreadsheets/d/17-va7j5PGp2DUY4ugL0sWa3Dh6UbId1wNYrS8m4qc_Y/pub?gid=0&single=true&output=csv";
 
@@ -1301,6 +1304,12 @@ function App() {
 
       <div style={{ textAlign: "center", padding: "24px 0 90px", fontFamily: MONO, fontSize: 11, color: C.mute }}>
         © Tyler Selwyn 2026
+        <div style={{ marginTop: 8 }}>
+          Help keep the site running ·{" "}
+          <a href={VENMO_URL} target="_blank" rel="noopener noreferrer" style={{ color: C.ball, textDecoration: "none" }}>
+            Venmo @{VENMO_USER}
+          </a>
+        </div>
       </div>
     </div>
   );
