@@ -613,7 +613,7 @@ function TournamentTab({ players, dropped, allNames, meP, onPlayer, tournaments,
           <Countdown to={new Date(t.cutoff_at)} />
           <div style={{ fontSize: 12, color: C.mute, marginTop: 10, lineHeight: 1.5 }}>
             Top {t.size} on the ladder at {fmtET(t.cutoff_at, { hour: "numeric", minute: "2-digit" })} ET {etDay(t.cutoff_at)} qualify.
-            Scores reported after that don't count toward seeding. {TOURNEY_FORMAT} Tournament results don't move ladder ranks.
+            Scores reported after that don't count toward seeding. {TOURNEY_FORMAT} Tournament matches don't move ladder ranks during the season; the final standings set the top 8 to start the new year.
           </div>
         </Card>
       )}
@@ -631,7 +631,7 @@ function TournamentTab({ players, dropped, allNames, meP, onPlayer, tournaments,
           <div style={{ fontSize: 13, color: C.line, lineHeight: 1.55 }}>{TOURNEY_FORMAT}</div>
           <div style={{ fontSize: 12, color: C.mute, marginTop: 6, lineHeight: 1.5 }}>
             Either player reports the score. Can't get your match played by the deadline? Contact an admin.
-            Tournament results don't move ladder ranks.
+            Tournament matches don't move ladder ranks during the season; the final standings set the top 8 to start the new year.
           </div>
         </Card>
       )}
