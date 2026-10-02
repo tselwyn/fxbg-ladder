@@ -1752,7 +1752,7 @@ function App() {
       <div style={{ textAlign: "center", padding: "24px 0 90px", fontFamily: MONO, fontSize: 11, color: C.mute }}>
         © Tyler Selwyn 2026
         <div style={{ marginTop: 8 }}>
-          Help keep the site running ·{" "}
+          Help keep the site running 🎾 ·{" "}
           <a href={VENMO_URL} target="_blank" rel="noopener noreferrer" style={{ color: C.ball, textDecoration: "none" }}>
             Venmo @{VENMO_USER}
           </a>
