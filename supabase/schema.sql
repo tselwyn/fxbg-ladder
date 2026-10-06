@@ -223,8 +223,10 @@ begin
   if c.rank - o.rank > s.challenge_range then
     raise exception 'You can only challenge players within % spots above you', s.challenge_range;
   end if;
+  -- Wildcards are admin-arranged and never count toward either limit below.
   select count(*) into n from challenges
-    where challenger_id = c.id and status in ('pending','accepted','reported');
+    where challenger_id = c.id and status in ('pending','accepted','reported')
+      and not is_wildcard;
   if n >= s.max_active_challenges then
     raise exception 'You already have % active challenges', s.max_active_challenges;
   end if;
@@ -235,7 +237,8 @@ begin
   -- NEW: incoming limit — how many people can have an open challenge against this player.
   -- Unlocks as soon as a score is reported (scores are final immediately).
   select count(*) into n from challenges
-    where opponent_id = o.id and status in ('pending','accepted');
+    where opponent_id = o.id and status in ('pending','accepted')
+      and not is_wildcard;
   if n >= coalesce(s.max_incoming_challenges, 1) then
     raise exception '% already has an open challenge — wait until it wraps up', o.name;
   end if;
