@@ -1782,6 +1782,7 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [startSpot, setStartSpot] = useState("");
   const [rmWinner, setRmWinner] = useState("");
   const [rmLoser, setRmLoser] = useState("");
   const [rmScore, setRmScore] = useState("");
@@ -1799,25 +1800,54 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
   useEffect(() => { loadJoinReqs(); }, []);
 
   async function handleJoinReq(r, approve) {
-    const msg = approve
-      ? `Approve ${r.name}? They go to the bottom of the ladder and can sign in with ${r.email}.`
-      : `Deny ${r.name}? They are not added and not emailed.`;
-    if (!confirm(msg)) return;
+    let spotRaw = "";
+    if (approve) {
+      spotRaw = prompt(`Approve ${r.name}? They can sign in with ${r.email}.\n\nStarting spot (1–${bottom}). Leave blank for the bottom (#${bottom}).`, "");
+      if (spotRaw === null) return;
+    } else if (!confirm(`Deny ${r.name}? They are not added and not emailed.`)) return;
+    const spot = approve ? parseSpot(spotRaw) : null;
+    if (spot === false) return;
     try {
       await rpc(approve ? "approve_join_request" : "deny_join_request", { p_id: r.id });
-      if (approve && r.email) notify("welcome", null, { email: r.email });
-      say(approve ? `${r.name} added to the bottom of the ladder — welcome email sent` : `Request from ${r.name} denied`);
+      if (approve) {
+        const rank = await placeNewPlayer(r.email, spot);
+        if (r.email) notify("welcome", null, { email: r.email });
+        say(`${r.name} added at #${rank ?? bottom} — welcome email sent`);
+      } else say(`Request from ${r.name} denied`);
       loadJoinReqs();
       if (approve) reload();
     } catch (e) { say(e.message, true); }
   }
 
+  // New players land at the bottom; this moves them to the starting spot
+  // BEFORE the welcome email goes out, so the email shows the real rank.
+  const bottom = players.length + 1;
+  function parseSpot(v) {
+    if (!String(v ?? "").trim()) return null;
+    const n = parseInt(v, 10);
+    if (!(n >= 1 && n <= bottom)) { say(`Starting spot must be 1–${bottom}`, true); return false; }
+    return n;
+  }
+  async function placeNewPlayer(addr, spot) {
+    const { data: p } = await supabase.from("players").select("id, rank")
+      .eq("email", String(addr || "").trim().toLowerCase()).eq("active", true).maybeSingle();
+    if (!p) return null;
+    if (spot && spot !== p.rank) {
+      await rpc("admin_set_rank", { p_player: p.id, p_rank: spot });
+      return spot;
+    }
+    return p.rank;
+  }
+
   async function addPlayer() {
+    const spot = parseSpot(startSpot);
+    if (spot === false) return;
     try {
       await rpc("admin_upsert_player", { p_name: name, p_email: email, p_phone: phone });
+      const rank = await placeNewPlayer(email, spot);
       if (email.trim()) notify("welcome", null, { email: email.trim() });
-      say(`${name} added to the bottom of the ladder${email.trim() ? " — welcome email sent" : ""}`);
-      setName(""); setEmail(""); setPhone("");
+      say(`${name} added at #${rank ?? bottom}${email.trim() ? " — welcome email sent" : ""}`);
+      setName(""); setEmail(""); setPhone(""); setStartSpot("");
       reload();
     } catch (e) { say(e.message, true); }
   }
@@ -1963,6 +1993,7 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
         <Field label="Name" value={name} onChange={setName} placeholder="First Last" />
         <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="them@example.com" />
         <Field label="Phone" value={phone} onChange={setPhone} placeholder="540-555-0100" />
+        <Field label="Starting spot (optional)" type="number" value={startSpot} onChange={setStartSpot} placeholder={`Blank = bottom (#${bottom})`} />
         <Btn onClick={addPlayer} disabled={!name.trim()}>Add player</Btn>
       </Card>
 
