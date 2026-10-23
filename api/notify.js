@@ -54,7 +54,7 @@ export default async function handler(req, res) {
               <li><b>Either player reports the score</b> in the app when you're done.</li>
             </ul>
             <p><b>Signing in:</b> go to <a href="${site}">rallyladders.com</a>, tap Sign in, and enter
-              <b>${p.email}</b>. We'll email you a 6-digit code — it's right in the subject line.
+              <b>${p.email}</b>. We'll email you a sign-in code — it's right in the subject line.
               No password, and you only do this once per device.</p>
             <p>On your phone you can add it to your home screen and it works like an app
               (Share &rarr; Add to Home Screen).</p>
