@@ -1664,9 +1664,9 @@ function App() {
         {loginSent ? (
           <>
             <div style={{ color: C.line, fontSize: 14, lineHeight: 1.5, marginBottom: 14 }}>
-              We emailed a 6-digit code to <b>{loginEmail}</b>. The code is right in the email's subject line — you can read it from the notification. Type it below. You'll only ever do this once on this device.
+              We emailed a sign-in code to <b>{loginEmail}</b>. The code is right in the email's subject line — you can read it from the notification. Type it below. You'll only ever do this once on this device.
             </div>
-            <Field label="Code from the email" value={loginCode} onChange={setLoginCode} placeholder="6-digit code" />
+            <Field label="Code from the email" value={loginCode} onChange={setLoginCode} placeholder="Code from the subject line" />
             <div style={{ display: "flex", gap: 8 }}>
               <Btn onClick={verifyCode} disabled={loginCode.trim().length < 6}>Sign in</Btn>
               <Btn kind="ghost" onClick={() => { try { localStorage.removeItem("pendingLoginEmail"); } catch {} setLoginSent(false); setLoginCode(""); }}>Different email</Btn>
@@ -1678,7 +1678,7 @@ function App() {
         ) : (
           <>
             <div style={{ color: C.mute, fontSize: 13, marginBottom: 14 }}>
-              Use the email you're registered on the ladder with. No password — we'll email you a 6-digit code. You only sign in once per device.
+              Use the email you're registered on the ladder with. No password — we'll email you a sign-in code. You only sign in once per device.
             </div>
             <Field label="Email" type="email" value={loginEmail} onChange={setLoginEmail} placeholder="you@example.com" />
             <Btn onClick={sendLogin} disabled={!loginEmail.includes("@")}>Email me a code</Btn>
