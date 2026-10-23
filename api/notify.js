@@ -37,6 +37,7 @@ export default async function handler(req, res) {
       const fromAddrW = FROM.includes("<") ? FROM.match(/<([^>]+)>/)[1] : FROM;
       const openBtn = `<p><a href="${site}" style="background:#D8F529;color:#0F2E25;padding:14px 22px;border-radius:4px;text-decoration:none;font-weight:bold">Open the ladder</a></p>`;
       const first = String(p.name || "").split(" ")[0] || "there";
+      const total = (await sbFetch(`players?active=eq.true&select=id`)).length;
       const w = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND}` },
@@ -45,8 +46,7 @@ export default async function handler(req, res) {
           to: p.email,
           subject: `You're on the FXBG Singles Ladder`,
           html: `<p>Welcome to the ladder, ${first}!</p>
-            <p>Matt will place you on the ladder based on your level — open the app any time
-              to see where you landed. Here's how it works:</p>
+            <p>You're starting at <b>#${p.rank}</b>${total ? ` of ${total}` : ""}. Here's how it works:</p>
             <ul style="line-height:1.7">
               <li><b>Challenge up.</b> You can challenge anyone up to a few spots above you. Tap their row on the ladder and hit Challenge.</li>
               <li><b>They have a few days to accept</b>, then you both have a window to actually play. You'll get emails with the deadlines.</li>
