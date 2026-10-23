@@ -1011,6 +1011,13 @@ function App() {
   }, [session, players, dropped]);
 
   const byId = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p])), [players]);
+  // Name for ANY player id, including people on a temp drop or no longer on
+  // the ladder. Match history is history: it shows whoever played, not just
+  // whoever is on the ladder today.
+  const nameOf = (id) =>
+    byId[id]?.name || dropped.find((p) => p.id === id)?.name || allNames?.get(id) || "Former player";
+  const HISTORY_PAGE = 20;
+  const [historyShown, setHistoryShown] = useState(HISTORY_PAGE);
 
   // Full career logs (live challenges + TennisRungs archive), per player name.
   const logsByName = useMemo(() => {
@@ -1298,7 +1305,7 @@ function App() {
   }
 
   async function editScore(ch) {
-    const a = byId[ch.challenger_id]?.name || "?", b = byId[ch.opponent_id]?.name || "?";
+    const a = nameOf(ch.challenger_id), b = nameOf(ch.opponent_id);
     const cur = ch.winner_id === ch.challenger_id ? "1" : "2";
     const w = prompt(`Winner?\n1 = ${a}\n2 = ${b}`, cur);
     if (w !== "1" && w !== "2") return;
@@ -1310,8 +1317,8 @@ function App() {
   }
 
   async function deleteMatch(ch) {
-    const w = byId[ch.winner_id]?.name || "?";
-    const l = byId[ch.winner_id === ch.challenger_id ? ch.opponent_id : ch.challenger_id]?.name || "?";
+    const w = nameOf(ch.winner_id);
+    const l = nameOf(ch.winner_id === ch.challenger_id ? ch.opponent_id : ch.challenger_id);
     if (!confirm(`Delete this match (${w} def. ${l}${ch.score && ch.score !== "n/a" ? ` ${ch.score}` : ""})? It disappears from history and both players' W/L records and streaks recalculate automatically. Rank changes from this match are NOT undone — use the Rank button in Admin if a rank needs fixing.`)) return;
     try { await rpc("admin_delete_match", { p_id: ch.id }); say("Match deleted — records updated"); loadAll(); }
     catch (e) { say(e.message, true); }
@@ -1560,10 +1567,9 @@ function App() {
             <StatsTab players={players} logsByName={logsByName} onPlayer={setReportPlayer} />
             <Eyebrow>League match history</Eyebrow>
             {completed.length === 0 && <Card><div style={{ color: C.mute, fontSize: 14 }}>No completed matches yet.</div></Card>}
-            {completed.map((ch) => {
-              const w = byId[ch.winner_id];
-              const l = byId[ch.winner_id === ch.challenger_id ? ch.opponent_id : ch.challenger_id];
-              if (!w || !l) return null;
+            {completed.slice(0, historyShown).map((ch) => {
+              const w = { name: nameOf(ch.winner_id) };
+              const l = { name: nameOf(ch.winner_id === ch.challenger_id ? ch.opponent_id : ch.challenger_id) };
               return (
                 <div key={ch.id} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "10px 4px", borderBottom: `1px solid ${C.faint}` }}>
                   <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute, width: 52, flexShrink: 0 }}>{fmtDate(ch.reported_at || ch.created_at)}</div>
@@ -1584,6 +1590,14 @@ function App() {
                 </div>
               );
             })}
+            {completed.length > historyShown && (
+              <div style={{ textAlign: "center", marginTop: 14 }}>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: C.mute, marginBottom: 8 }}>
+                  Showing {historyShown} of {completed.length} matches
+                </div>
+                <Btn small kind="ghost" onClick={() => setHistoryShown((n) => n + HISTORY_PAGE)}>Show more</Btn>
+              </div>
+            )}
           </>
         )}
 

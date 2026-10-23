@@ -666,6 +666,8 @@ begin
   update players set active = true, dropped = false, last_activity = now(),
       rank = coalesce((select max(rank) from players where active), 0) + 1
     where lower(email) = lower(trim(p_email)) and not active;
+  -- Rebuild W/L + streak from their match history and the TennisRungs archive.
+  perform recount_player_stats((select id from players where lower(email) = lower(trim(p_email))));
 end $function$
 ;
 
@@ -698,6 +700,8 @@ begin
   update players set active = true, dropped = false, last_activity = now(), rank_change = 0,
       rank = coalesce((select max(rank) from players where active), 0) + 1
     where id = p_player and not active;
+  -- Rebuild W/L + streak from their match history and the TennisRungs archive.
+  perform recount_player_stats(p_player);
 end $function$
 ;
 
