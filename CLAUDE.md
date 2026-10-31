@@ -14,7 +14,8 @@ this every day — treat production with care.
 - Backend: Vercel serverless functions in `api/`
 - Database + auth: Supabase (Postgres, RLS, code-only OTP sign-in)
 - Email: Resend (free tier, 100 emails/day cap)
-- Crons (`vercel.json`): `/api/digest` 10:00 UTC daily, `/api/tick` 12:00 UTC daily
+- Crons (`vercel.json`): `/api/digest` 10:00 UTC daily, `/api/tick` 12:00 UTC daily,
+  `/api/monthly` 23:00 UTC daily (only sends on the last day of the month, ET)
 
 ## Files
 
@@ -22,6 +23,10 @@ this every day — treat production with care.
 - `api/notify.js` — challenge emails (issued/accepted/declined/withdrawn)
 - `api/digest.js` — daily results email + Sunday CSV backup email
 - `api/tick.js` — runs `tick()` (expiry, auto-confirm, decay) + "expires soon" reminders
+- `api/monthly.js` + `lib/monthly.js` — monthly recap, evening of the last day. Admin tab picks
+  `settings.monthly_recap_mode`: `draft` (default: admins get the recap + BCC list, send it from Gmail,
+  1 Resend email), `auto` (app emails every player, ~40 emails, only with a paid Resend plan), `off`.
+  Covers temp drops. Verifies data first. "Email me the draft now" button in Admin. `?preview=1` in a browser.
 - `api/accept.js`, `api/join.js`, `api/unsubscribe.js`
 - `supabase/schema.sql` — source of truth for the database, re-runnable
 
