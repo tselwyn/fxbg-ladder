@@ -1909,7 +1909,8 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
         headers: { Authorization: `Bearer ${data?.session?.access_token || ""}` },
       });
       const out = await r.json().catch(() => ({}));
-      if (!r.ok || out.error || out.ok === false) throw new Error(out.error || "Couldn't send the draft — try again in a minute");
+      if (out.skipped) throw new Error(`Not sent: ${out.skipped}`);
+      if (!r.ok || out.error || out.ok !== true) throw new Error(out.error || "Couldn't send the draft — try again in a minute");
       say(out.problems?.length
         ? `Draft sent — it flags ${out.problems.length} thing${out.problems.length === 1 ? "" : "s"} to check`
         : "Draft sent — check your email");
