@@ -2,6 +2,6 @@
   "crons": [
     { "path": "/api/tick", "schedule": "0 12 * * *" },
     { "path": "/api/digest", "schedule": "0 10 * * *" },
-    { "path": "/api/monthly", "schedule": "0 22 1 * *" }
+    { "path": "/api/monthly", "schedule": "0 23 * * *" }
   ]
 }

@@ -15,7 +15,7 @@ this every day — treat production with care.
 - Database + auth: Supabase (Postgres, RLS, code-only OTP sign-in)
 - Email: Resend (free tier, 100 emails/day cap)
 - Crons (`vercel.json`): `/api/digest` 10:00 UTC daily, `/api/tick` 12:00 UTC daily,
-  `/api/monthly` 22:00 UTC on the 1st
+  `/api/monthly` 23:00 UTC daily (only sends on the last day of the month, ET)
 
 ## Files
 
@@ -23,7 +23,8 @@ this every day — treat production with care.
 - `api/notify.js` — challenge emails (issued/accepted/declined/withdrawn)
 - `api/digest.js` — daily results email + Sunday CSV backup email
 - `api/tick.js` — runs `tick()` (expiry, auto-confirm, decay) + "expires soon" reminders
-- `api/monthly.js` + `lib/monthly.js` — monthly recap email to every player incl. temp drops
+- `api/monthly.js` + `lib/monthly.js` — monthly recap email to every player incl. temp drops,
+  sent the evening of the last day; verifies the data first and emails admins instead if anything's off
   (own opt-out `players.monthly_emails`; `?preview=1` shows it in a browser, `?test=1&key=CRON_SECRET` sends to admins)
 - `api/accept.js`, `api/join.js`, `api/unsubscribe.js`
 - `supabase/schema.sql` — source of truth for the database, re-runnable

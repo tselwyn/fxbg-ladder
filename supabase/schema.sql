@@ -74,6 +74,7 @@ create table if not exists settings (
   rematch_days integer not null default 7,
   max_incoming_challenges integer not null default 1,
   monthly_recap_sent_for text,
+  monthly_recap_sent_at timestamp with time zone,
   PRIMARY KEY (id)
 );
 
@@ -104,6 +105,7 @@ alter table challenges add column if not exists play_reminder_sent_at timestamp 
 -- Monthly recap (supabase/migrations/2026-10-31-monthly-recap.sql)
 alter table players    add column if not exists monthly_emails boolean not null default true;
 alter table settings   add column if not exists monthly_recap_sent_for text;
+alter table settings   add column if not exists monthly_recap_sent_at timestamp with time zone;
 
 -- Speeds up the daily "expires tomorrow" reminder scan in api/tick.js.
 create index if not exists challenges_play_reminder_idx
