@@ -1,11 +1,13 @@
-// One-click unsubscribe from the daily digest. Linked from every digest email
-// as /api/unsubscribe?t=<email_token>. No login required — the token is the
-// proof. Flips players.daily_emails to false and shows a tiny confirmation page.
+// One-click unsubscribe. No login required — the token is the proof.
+//   /api/unsubscribe?t=<email_token>               daily results email (daily_emails)
+//   /api/unsubscribe?t=<email_token>&list=monthly  monthly recap (monthly_emails)
+// Shows a tiny confirmation page.
 
 export default async function handler(req, res) {
   const SB = process.env.SUPABASE_URL;
   const KEY = process.env.SUPABASE_SERVICE_KEY;
   const t = (req.query && req.query.t) || "";
+  const monthly = req.query && req.query.list === "monthly";
   const page = (msg) =>
     `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#0F2E25;background:#F6F8F4;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>FXBG Singles Tennis</h2><p>${msg}</p></div></body></html>`;
 
@@ -21,13 +23,15 @@ export default async function handler(req, res) {
         "Content-Type": "application/json",
         Prefer: "return=representation",
       },
-      body: JSON.stringify({ daily_emails: false }),
+      body: JSON.stringify(monthly ? { monthly_emails: false } : { daily_emails: false }),
     });
     const rows = await r.json();
     if (Array.isArray(rows) && rows.length > 0) {
       return res
         .status(200)
-        .send(page("You've been removed from the daily results email. Challenge and score emails still apply. Changed your mind? Contact Matt."));
+        .send(page(monthly
+          ? "You've been removed from the monthly recap email. Challenge and score emails still apply. Changed your mind? Contact Matt."
+          : "You've been removed from the daily results email. Challenge and score emails still apply. Changed your mind? Contact Matt."));
     }
     return res.status(200).send(page("That unsubscribe link isn't valid."));
   } catch (e) {
