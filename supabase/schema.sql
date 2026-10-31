@@ -75,6 +75,7 @@ create table if not exists settings (
   max_incoming_challenges integer not null default 1,
   monthly_recap_sent_for text,
   monthly_recap_sent_at timestamp with time zone,
+  monthly_recap_mode text not null default 'draft',
   PRIMARY KEY (id)
 );
 
@@ -106,6 +107,9 @@ alter table challenges add column if not exists play_reminder_sent_at timestamp 
 alter table players    add column if not exists monthly_emails boolean not null default true;
 alter table settings   add column if not exists monthly_recap_sent_for text;
 alter table settings   add column if not exists monthly_recap_sent_at timestamp with time zone;
+alter table settings   add column if not exists monthly_recap_mode text not null default 'draft';
+alter table settings   drop constraint if exists settings_monthly_recap_mode_check;
+alter table settings   add constraint settings_monthly_recap_mode_check check (monthly_recap_mode in ('off','draft','auto'));
 
 -- Speeds up the daily "expires tomorrow" reminder scan in api/tick.js.
 create index if not exists challenges_play_reminder_idx
@@ -897,7 +901,8 @@ begin
     confirm_hours = coalesce((p->>'confirm_hours')::int, confirm_hours),
     rematch_days = coalesce((p->>'rematch_days')::int, rematch_days),
     decay_enabled = coalesce((p->>'decay_enabled')::boolean, decay_enabled),
-    decay_days = coalesce((p->>'decay_days')::int, decay_days)
+    decay_days = coalesce((p->>'decay_days')::int, decay_days),
+    monthly_recap_mode = coalesce(nullif(p->>'monthly_recap_mode', ''), monthly_recap_mode)
   where id = 1;
 end $function$
 ;

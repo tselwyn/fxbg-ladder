@@ -1898,6 +1898,25 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
     } catch (e) { say(e.message, true); }
   }
 
+  // Emails the admins the monthly recap for the month so far (api/monthly.js).
+  const [draftBusy, setDraftBusy] = useState(false);
+  async function emailDraftNow() {
+    setDraftBusy(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const r = await fetch("/api/monthly", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data?.session?.access_token || ""}` },
+      });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok || out.error || out.ok === false) throw new Error(out.error || "Couldn't send the draft — try again in a minute");
+      say(out.problems?.length
+        ? `Draft sent — it flags ${out.problems.length} thing${out.problems.length === 1 ? "" : "s"} to check`
+        : "Draft sent — check your email");
+    } catch (e) { say(e.message, true); }
+    setDraftBusy(false);
+  }
+
   async function setRank(p) {
     const v = prompt(`New rank for ${p.name} (currently #${p.rank}):`, p.rank);
     if (!v) return;
@@ -2044,6 +2063,34 @@ function AdminPanel({ players, dropped = [], challenges = [], settings, say, rel
         <Field {...num("decay_days")} />
         <Field {...num("rematch_days")} />
         <Btn onClick={saveSettings}>Save settings</Btn>
+      </Card>
+
+      <Eyebrow>Monthly recap email</Eyebrow>
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: C.mute, marginBottom: 12 }}>
+          Goes out the evening of the last day of each month: matches played, open challenges,
+          top 3, Most Wins / Most Matches, and reminders. Covers every player, temp drops included.
+        </div>
+        <SelectField label="What happens at month end" value={s.monthly_recap_mode || "draft"}
+          onChange={(v) => setS({ ...s, monthly_recap_mode: v || "draft" })} placeholder="Choose…"
+          options={[
+            { value: "draft", label: "Draft to admins — we send it from Gmail" },
+            { value: "auto", label: "Auto-send to every player" },
+            { value: "off", label: "Off" },
+          ]} />
+        <div style={{ fontSize: 12, color: C.mute, marginBottom: 12 }}>
+          {(s.monthly_recap_mode || "draft") === "draft" &&
+            "Admins get one email with the finished recap, the BCC list and the subject. Paste it into Gmail and send. Uses 1 of the 100 emails/day."}
+          {s.monthly_recap_mode === "auto" &&
+            "The app emails each player itself (~40 of the 100 emails/day, on top of the daily results email). Only pick this if Resend is upgraded."}
+          {s.monthly_recap_mode === "off" && "Nothing is sent at month end."}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Btn onClick={saveSettings}>Save</Btn>
+          <Btn kind="ghost" onClick={emailDraftNow} disabled={draftBusy}>
+            {draftBusy ? "Sending…" : "Email me the draft now"}
+          </Btn>
+        </div>
       </Card>
 
       {(() => {
