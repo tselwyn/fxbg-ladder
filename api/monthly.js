@@ -148,7 +148,7 @@ export default async function handler(req, res) {
     const tMatches = tourneys.length
       ? await must("tournament matches",
           `tournament_matches?tournament_id=in.(${tourneys.map((t) => t.id).join(",")})` +
-            `&result_type=eq.played&${range}&select=id,player_a,player_b,winner_id,reported_at`)
+            `&winner_id=not.is.null&${range}&select=id,player_a,player_b,winner_id,result_type,reported_at`)
       : [];
 
     // Everyone still in the league: on the ladder or temp dropped.
